@@ -10,4 +10,7 @@ public interface ITodoRepository
 
     /// <summary>미완료 + 마감일이 지정된 항목 조회 (CheckDueSoon 백그라운드 검사용)</summary>
     IEnumerable<TodoItem> GetActiveWithDueDate();
+
+    /// <summary>미완료 항목 전체 조회 (마감일 유무 무관, 목록 화면용)</summary>
+    IEnumerable<TodoItem> GetIncomplete();
 }

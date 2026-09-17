@@ -11,5 +11,7 @@
 
     <Application.Styles>
         <FluentTheme />
+        <!-- ColorPicker는 FluentTheme에 자동 포함되지 않아 별도로 테마를 등록해야 렌더링됨 -->
+        <StyleInclude Source="avares://Avalonia.Controls.ColorPicker/Themes/Fluent/Fluent.xaml" />
     </Application.Styles>
 </Application>

@@ -1,22 +1,149 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:App.UI.ViewModels"
+        xmlns:conv="using:App.UI.Converters"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
         x:Class="App.UI.Views.MainWindow"
         x:DataType="vm:MainViewModel"
         Icon="/Assets/avalonia-logo.ico"
-        Title="App.UI">
+        Title="Sticky Ghost - To-do">
 
-    <Design.DataContext>
-        <!-- This only sets the DataContext for the previewer in an IDE,
-             to set the actual DataContext for runtime, set the DataContext property in code (look at App.axaml.cs) -->
-        <vm:MainViewModel />
-    </Design.DataContext>
+    <!-- MainViewModel이 리포지토리/서비스 생성자 의존성을 가지므로 Design.DataContext 프리뷰는 생략 -->
 
-    <TextBox Text="{Binding Greeting}"
-             HorizontalAlignment="Center"
-             VerticalAlignment="Center" />
+    <Window.Resources>
+        <conv:HexColorToBrushConverter x:Key="HexColorToBrushConverter" />
+    </Window.Resources>
 
+    <DockPanel Margin="16">
+        <StackPanel DockPanel.Dock="Top" Spacing="8" Margin="0,0,0,12">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <TextBox Width="220" Watermark="할 일 제목" Text="{Binding NewTitle}" />
+                <DatePicker SelectedDate="{Binding NewDueDate}" />
+                <CheckBox Content="중요" IsChecked="{Binding NewIsImportant}" />
+                <CheckBox Content="긴급" IsChecked="{Binding NewIsUrgent}" />
+                <ComboBox ItemsSource="{Binding Categories}"
+                          SelectedItem="{Binding SelectedCategory}"
+                          DisplayMemberBinding="{Binding Name}"
+                          PlaceholderText="미분류" />
+                <Button Content="추가" Command="{Binding AddTodoCommand}" />
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <TextBox Width="140" Watermark="카테고리 이름" Text="{Binding NewCategoryName}" />
+                <Button Content="카테고리 추가" Command="{Binding AddCategoryCommand}" />
+                <ItemsControl ItemsSource="{Binding Categories}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:CategoryViewModel">
+                            <Border Background="#EEEEEE" CornerRadius="4" Padding="6,2" Margin="0,0,4,4">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <ColorPicker Color="{Binding ColorValue}" />
+                                    <TextBox Text="{Binding Name}" Width="90" />
+                                    <Button Content="✕" Padding="2" Command="{Binding DeleteCommand}" />
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <TextBox Width="220" Watermark="체크리스트 항목" Text="{Binding NewChecklistText}" />
+                <Button Content="항목 추가" Command="{Binding AddChecklistItemToDraftCommand}" />
+            </StackPanel>
+
+            <ItemsControl ItemsSource="{Binding NewChecklistItems}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <WrapPanel />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:CompileBindings="False">
+                        <Border Background="#EEEEEE" CornerRadius="4" Padding="6,2" Margin="0,0,4,4">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <TextBlock Text="{Binding}" VerticalAlignment="Center" />
+                                <Button Content="✕" Padding="2"
+                                        Command="{Binding $parent[Window].DataContext.RemoveChecklistItemFromDraftCommand}"
+                                        CommandParameter="{Binding}" />
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <CheckBox Content="반복" IsChecked="{Binding NewIsRecurring}" />
+                <ComboBox ItemsSource="{Binding RecurrenceTypeOptions}"
+                          SelectedItem="{Binding SelectedRecurrenceType}"
+                          DisplayMemberBinding="{Binding Label}"
+                          IsEnabled="{Binding NewIsRecurring}" />
+                <NumericUpDown Value="{Binding NewRecurrenceInterval}" Minimum="1" Width="110"
+                               IsEnabled="{Binding NewIsRecurring}"
+                               FormatString="0" />
+                <DatePicker SelectedDate="{Binding NewRecurrenceEndDate}" IsEnabled="{Binding NewIsRecurring}" />
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsWeeklyRecurrenceSelected}">
+                <ItemsControl ItemsSource="{Binding RecurrenceDayOptions}" IsEnabled="{Binding CanEditRecurrenceDays}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal" Spacing="4" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:DayOfWeekOptionViewModel">
+                            <CheckBox Content="{Binding Label}" IsChecked="{Binding IsSelected}" />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Text="(요일 지정은 1주 간격에서만 가능)"
+                           IsVisible="{Binding !CanEditRecurrenceDays}"
+                           Foreground="Gray" FontSize="11" VerticalAlignment="Center" />
+            </StackPanel>
+
+            <TextBlock Text="{Binding ErrorMessage}" Foreground="Red" IsVisible="{Binding HasErrorMessage}" />
+        </StackPanel>
+
+        <!-- TODO: 트레이 아이콘 설계 전까지 메모 위젯 수동 확인용 임시 버튼 -->
+        <Button DockPanel.Dock="Bottom" Content="새 메모" Click="OnNewMemoClick" HorizontalAlignment="Left" Margin="0,12,0,0" />
+
+        <ListBox ItemsSource="{Binding Items}">
+            <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:TodoItemViewModel">
+                    <StackPanel Spacing="4" Margin="0,4">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <CheckBox IsChecked="{Binding IsCompleted}" />
+                            <TextBlock Text="{Binding Title}" Width="220" VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding DueDate, StringFormat='{}{0:yyyy-MM-dd}'}" VerticalAlignment="Center" />
+                            <TextBlock Text="중요" IsVisible="{Binding IsImportant}" Foreground="DarkOrange" VerticalAlignment="Center" />
+                            <TextBlock Text="긴급" IsVisible="{Binding IsUrgent}" Foreground="Red" VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding RecurrenceSummary}" IsVisible="{Binding HasRecurrence}" Foreground="SteelBlue" VerticalAlignment="Center" />
+                            <Border IsVisible="{Binding HasCategory}"
+                                    Background="{Binding CategoryColorHex, Converter={StaticResource HexColorToBrushConverter}}"
+                                    CornerRadius="3" Padding="4,1">
+                                <TextBlock Text="{Binding CategoryName}" FontSize="11" />
+                            </Border>
+                        </StackPanel>
+                        <ItemsControl ItemsSource="{Binding ChecklistItems}" Margin="28,0,0,0">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:ChecklistItemViewModel">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <CheckBox IsChecked="{Binding IsChecked}" />
+                                        <TextBlock Text="{Binding Text}" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+    </DockPanel>
 </Window>

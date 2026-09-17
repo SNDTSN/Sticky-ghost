@@ -1,0 +1,28 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:App.UI.ViewModels"
+        xmlns:conv="using:App.UI.Converters"
+        x:Class="App.UI.Views.MemoWindow"
+        x:DataType="vm:MemoNoteViewModel"
+        Width="220" Height="220"
+        Title="메모">
+
+    <Window.Resources>
+        <conv:HexColorToBrushConverter x:Key="HexColorToBrushConverter" />
+    </Window.Resources>
+
+    <Grid RowDefinitions="Auto,*" Background="{Binding ColorHex, Converter={StaticResource HexColorToBrushConverter}}">
+        <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Right" Margin="4" Spacing="4">
+            <ToggleButton Content="📌" IsChecked="{Binding IsPinned}" ToolTip.Tip="항상 위 표시" />
+            <ColorPicker Color="{Binding ColorValue}" ToolTip.Tip="색상 변경" />
+            <Button Content="✕" Command="{Binding RequestCloseCommand}" ToolTip.Tip="닫기" />
+        </StackPanel>
+        <TextBox Grid.Row="1"
+                 Text="{Binding Content}"
+                 AcceptsReturn="True"
+                 TextWrapping="Wrap"
+                 Background="Transparent"
+                 BorderThickness="0"
+                 Margin="8" />
+    </Grid>
+</Window>

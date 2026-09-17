@@ -114,7 +114,7 @@ CREATE TABLE TodoItem (
     -- 반복 규칙 (없으면 전부 NULL)
     RecurrenceType       TEXT,          -- 'Daily' | 'Weekly' | 'Monthly'
     RecurrenceInterval   INTEGER,       -- N일/주/달마다
-    RecurrenceDaysOfWeek INTEGER,       -- Weekly용 비트마스크 (월=1,화=2,수=4...)
+    RecurrenceDaysOfWeek INTEGER,       -- Weekly용 비트마스크. 순번(1,2,3..)이 아니라 요일마다 2의 거듭제곱을 배정해 OR로 합침: 월=1,화=2,수=4,목=8,금=16,토=32,일=64 (예: 월+수+금 = 1|4|16 = 21)
     RecurrenceEndDate    TEXT,          -- null이면 무기한
 
     NotifiedDueSoon      INTEGER NOT NULL DEFAULT 0
@@ -139,6 +139,8 @@ CREATE INDEX idx_todo_duedate   ON TodoItem(DueDate) WHERE IsCompleted = 0;
 CREATE INDEX idx_checklist_todo ON ChecklistItem(TodoItemId);
 CREATE INDEX idx_log_todo       ON CompletionLog(TodoItemId);
 ```
+
+**구현 완료** (`src/App.Core/Infrastructure/Sqlite/`): `SqliteSchemaInitializer`(위 DDL을 `CREATE TABLE IF NOT EXISTS`로 실행), `SqliteTodoRepository`, `SqliteCompletionLogStore`. 커넥션은 메서드 호출마다 새로 열고(Microsoft.Data.Sqlite 내장 풀링 활용), `Save(item)` 호출 시 `ChecklistItem`은 기존 행을 전부 지우고 현재 리스트를 재삽입하는 방식으로 단순화. "2주마다 금요일" 같은 실제 시나리오(`Weekly, Interval=2, DaysOfWeek 없음`)로 AddTodo → CompleteTodo → 재조회까지 임시 스모크 테스트로 검증함 (요일 유지, 체크리스트 초기화, RecurrenceRule 인코딩/디코딩 정상 확인).
 
 ## 핵심 흐름 (의사코드)
 
@@ -176,10 +178,26 @@ CheckDueSoon():
             eventBus.Publish(TodoOverdue(item))
 ```
 
+**구현 완료** (`src/App.Core/Domain/Services/TodoService.cs`): 위 의사코드를 그대로 옮기되, 구현하면서 확정한 것 세 가지.
+
+* **`Recurrence.EndDate` 초과 처리**: `ComputeNext`로 계산한 다음 회차가 `EndDate`를 넘으면 더 굴리지 않고 `IsCompleted = true`인 채로 멈춤. `Recurrence` 필드 자체는 지우지 않아서 "예전엔 반복이었다"는 정보가 남음.
+* **`IClock` 추상화 도입** (`src/App.Core/Domain/Services/IClock.cs` + `SystemClock.cs`): `DateTime.UtcNow`를 직접 쓰지 않고 `IClock.UtcNow`로 주입받아, 나중에 테스트에서 "지금 시각"을 고정할 수 있게 함.
+* **`AddTodo`에서 불변식 검증**: `Recurrence != null`인데 `dueDate == null`이면 `ArgumentException`. `RecurrenceRule.ComputeNext`가 non-null `DateTime`만 받는다고 가정하는 전제(위 섹션 참고)를 여기서 실제로 지킴.
+* `CompleteTodo`가 존재하지 않는 `id`를 받으면 `InvalidOperationException`.
+
 ## 다음 단계
 
 - [x] 엔티티(`TodoItem`/`ChecklistItem`/`Category`/`RecurrenceRule`) + 리포지토리·이벤트버스 인터페이스 작성 (`src/App.Core/Domain/`)
-- [ ] `TodoService` (AddTodo/CompleteTodo/CheckDueSoon 비즈니스 로직)
-- [ ] `SqliteTodoRepository` 등 이 문서의 DDL 기준 실제 SQLite 구현
-- [ ] 메모 위젯 설계
+- [x] `TodoService` (AddTodo/CompleteTodo/CheckDueSoon 비즈니스 로직) — `IClock` 포함
+- [x] `SqliteTodoRepository`/`SqliteCompletionLogStore` 등 이 문서의 DDL 기준 실제 SQLite 구현 (스모크 테스트로 검증 완료)
+- [x] 메모 위젯 설계 (`docs/memo-design.md`) — 엔티티/리포지토리/SQLite/`App.UI` 뷰까지 전부 완료
+- [x] `App.UI`에 To-do 리스트 1차 UI (`MainWindow`) — 단순 목록 + 제목/마감일/중요·긴급만 지원.
+  체크리스트 입력, 반복 설정, 카테고리 지정, 아이젠하워 매트릭스 뷰는 다음 이터레이션으로 미룸.
+  작업 중 `ITodoRepository.GetIncomplete()` 추가, `NoOpTodoEventBus`(캐릭터 엔진 붙기 전 임시 구현) 추가.
+  버그 수정: `DatePicker.SelectedDate`(`DateTimeOffset`)를 `.UtcDateTime`으로 저장하면 UTC+9 등 양수 시간대에서 하루 당겨지는 문제 발견 — `.DateTime`으로 수정.
+- [x] To-do 리스트 2차 — 체크리스트 입력/표시/토글 (`MainViewModel`, `TodoItemViewModel`, `ChecklistItemViewModel`). 실행 확인 완료.
+  - **미결정 사항**: 체크리스트 하위 항목을 전부 체크했을 때 상위 `TodoItem`을 자동으로 완료 처리할지 여부 — 아직 결론 안 남, 코드에 반영하지 않음. 다음에 다룰 때 고려할 점: 자동 완료가 반복 항목(`Recurrence`)과 만나면 체크리스트도 매 회차 초기화되는 기존 로직과 상호작용이 생김, 그리고 사용자가 "일부러 체크리스트만 다 채우고 아직 완료로 안 넘기고 싶은" 경우와 충돌할 수 있음.
+  - [x] 반복 설정 UI (`RecurrenceTypeOption`, `DayOfWeekOptionViewModel`) — 유형/간격/요일(1주 간격 제한 반영)/종료일 입력, 목록에 "🔁 매일 (종료 ...)" 형태 배지 표시. 완료 체크 시 실제로 다음 회차로 굴러가는 것까지 실행 확인 완료.
+  - [x] 카테고리 CRUD + 지정 UI (`ICategoryRepository`/`SqliteCategoryRepository` 신규 추가, `CategoryViewModel`).
+    칩 형태로 이름/색상 즉시 수정(Update), 삭제 시 `TodoItem.CategoryId`의 `ON DELETE SET NULL` FK로 자동 미분류 처리됨 — 실행 확인 완료.
 - [ ] 캐릭터 엔진 설계 (`ITodoEventBus` 구독 측 포함)

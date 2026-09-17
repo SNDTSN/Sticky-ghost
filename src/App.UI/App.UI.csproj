@@ -26,5 +26,7 @@
   <ItemGroup>
     <ProjectReference Include="..\App.Core\App.Core.csproj" />
     <ProjectReference Include="..\App.Platform\App.Platform.csproj" />
+    <!-- TODO: 임시 배선. App.Platform.Windows 구현이 나오면 실제 조립(DI) 방식과 함께 정리 -->
+    <ProjectReference Include="..\App.Platform.Stub\App.Platform.Stub.csproj" />
   </ItemGroup>
 </Project>
