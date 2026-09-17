@@ -48,13 +48,7 @@ public partial class MemoNoteViewModel : ViewModelBase
         {
             Interval = TimeSpan.FromMilliseconds(500),
         };
-        _contentSaveTimer.Tick += (_, _) =>
-        {
-            _contentSaveTimer.Stop();
-            _memo.Content = Content;
-            _memo.UpdatedAt = DateTime.UtcNow;
-            _repository.Save(_memo);
-        };
+        _contentSaveTimer.Tick += (_, _) => SaveContentNow();
     }
 
     public MediaColor ColorValue
@@ -88,6 +82,17 @@ public partial class MemoNoteViewModel : ViewModelBase
         _contentSaveTimer.Stop();
         _contentSaveTimer.Start();
     }
+
+    private void SaveContentNow()
+    {
+        _contentSaveTimer.Stop();
+        _memo.Content = Content;
+        _memo.UpdatedAt = DateTime.Now;
+        _repository.Save(_memo);
+    }
+
+    /// <summary>메인 창 종료 등으로 디바운스를 기다릴 수 없을 때 대기 중인 내용 저장을 즉시 실행한다.</summary>
+    public void FlushContentSave() => SaveContentNow();
 
     partial void OnColorHexChanged(string value)
     {

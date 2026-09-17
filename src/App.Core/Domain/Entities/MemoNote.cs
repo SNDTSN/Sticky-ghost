@@ -10,6 +10,6 @@ public sealed class MemoNote
     public double Width { get; set; }
     public double Height { get; set; }
     public bool IsPinned { get; set; }
-    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime CreatedAt { get; set; } = DateTime.Now;
+    public DateTime UpdatedAt { get; set; } = DateTime.Now;
 }

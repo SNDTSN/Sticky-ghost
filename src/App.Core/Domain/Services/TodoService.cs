@@ -47,7 +47,7 @@ public sealed class TodoService
             IsUrgent = isUrgent,
             DueDate = dueDate,
             Recurrence = recurrence,
-            CreatedAt = _clock.UtcNow,
+            CreatedAt = _clock.Now,
         };
 
         if (checklistTexts is not null)
@@ -65,7 +65,7 @@ public sealed class TodoService
         }
 
         _repository.Save(item);
-        _eventBus.Publish(new TodoCreated(item));
+        _eventBus.Publish(new TodoCreated(TodoItemSnapshot.From(item)));
         return item;
     }
 
@@ -74,12 +74,16 @@ public sealed class TodoService
         var item = _repository.Get(id)
             ?? throw new InvalidOperationException($"존재하지 않는 TodoItem: {id}");
 
-        var snapshot = JsonSerializer.Serialize(item.ChecklistItems);
-        var now = _clock.UtcNow;
+        var checklistSnapshot = JsonSerializer.Serialize(item.ChecklistItems);
+        var now = _clock.Now;
 
+        item.CompletionCount += 1;
         item.IsCompleted = true;
         item.CompletedAt = now;
-        _completionLog.Append(id, now, snapshot);
+        _completionLog.Append(id, now, checklistSnapshot);
+
+        // 반복 롤오버로 item이 더 바뀌기 전, "방금 완료된 회차" 그대로 이벤트용 스냅샷을 떠 둔다.
+        var completedEventSnapshot = TodoItemSnapshot.From(item);
 
         if (item.Recurrence is { } recurrence)
         {
@@ -100,12 +104,12 @@ public sealed class TodoService
         }
 
         _repository.Save(item);
-        _eventBus.Publish(new TodoCompleted(item));
+        _eventBus.Publish(new TodoCompleted(completedEventSnapshot));
     }
 
     public void CheckDueSoon()
     {
-        var now = _clock.UtcNow;
+        var now = _clock.Now;
 
         foreach (var item in _repository.GetActiveWithDueDate())
         {
@@ -118,11 +122,11 @@ public sealed class TodoService
             {
                 item.NotifiedDueSoon = true;
                 _repository.Save(item);
-                _eventBus.Publish(new TodoDueSoon(item, minutesLeft));
+                _eventBus.Publish(new TodoDueSoon(TodoItemSnapshot.From(item), minutesLeft));
             }
             else if (dueDate < now)
             {
-                _eventBus.Publish(new TodoOverdue(item));
+                _eventBus.Publish(new TodoOverdue(TodoItemSnapshot.From(item)));
             }
         }
     }

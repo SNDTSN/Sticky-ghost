@@ -18,6 +18,9 @@ Entity TodoItem
     ChecklistItems: List<ChecklistItem>
     Recurrence: RecurrenceRule?   // null이면 1회성 항목
     NotifiedDueSoon: bool         // 마감 임박 알림 중복 발행 방지
+    CompletionCount: int          // 지금까지 완료된 누적 횟수. 0이면 한 번도 완료된 적 없음.
+                                   // 반복 항목은 완료 즉시 IsCompleted/CompletedAt이 다음 회차용으로 리셋되어
+                                   // "최초 상태"와 구분이 안 되기 때문에 별도로 둠
 
 Entity ChecklistItem
     Id: Guid
@@ -89,6 +92,8 @@ TodoEvent =
 ```
 
 **구현 완료** (`src/App.Core/Domain/Events/`): `ITodoEventBus`와 `TodoEvent`는 C# record 계층구조로 옮김 (`abstract record TodoEvent` + `sealed record TodoCreated/TodoCompleted/TodoDueSoon/TodoOverdue`). 구독 측에서 `switch` 패턴 매칭으로 전수 검사가 가능해서 선택.
+
+**주의 — `Item`은 `TodoItem`이 아니라 `TodoItemSnapshot`**: `TodoItem`은 참조 타입(mutable class)이라, 이벤트에 그대로 담아 넘기면 구독자가 나중에(비동기로) 읽는 시점엔 이미 다른 값으로 바뀌어 있을 수 있다. 특히 반복 항목은 `CompleteTodo` 안에서 완료 처리 직후 다음 회차로 롤오버되는데, 이벤트를 실시간으로 동기 처리하지 않고 캐릭터/MCP 쪽이 나중에 폴링해서 읽는 구조(`design-draft.md`의 Claude "수동 반응" 모델)에서는 `TodoCompleted.Item`이 "방금 완료된 회차"가 아니라 "이미 롤오버된 다음 회차"를 보여주는 문제가 있었다. 그래서 `TodoEvent`의 `Item`은 발행 직전에 `TodoItemSnapshot.From(item)`으로 뜬 불변 스냅샷(`src/App.Core/Domain/Events/TodoItemSnapshot.cs`)을 쓴다 — `CompleteTodo`는 롤오버 전에 스냅샷을 떠서 `TodoCompleted`에 담고, 그 다음에 롤오버 처리를 이어간다.
 
 ## SQLite 스키마 (DDL)
 
@@ -181,7 +186,8 @@ CheckDueSoon():
 **구현 완료** (`src/App.Core/Domain/Services/TodoService.cs`): 위 의사코드를 그대로 옮기되, 구현하면서 확정한 것 세 가지.
 
 * **`Recurrence.EndDate` 초과 처리**: `ComputeNext`로 계산한 다음 회차가 `EndDate`를 넘으면 더 굴리지 않고 `IsCompleted = true`인 채로 멈춤. `Recurrence` 필드 자체는 지우지 않아서 "예전엔 반복이었다"는 정보가 남음.
-* **`IClock` 추상화 도입** (`src/App.Core/Domain/Services/IClock.cs` + `SystemClock.cs`): `DateTime.UtcNow`를 직접 쓰지 않고 `IClock.UtcNow`로 주입받아, 나중에 테스트에서 "지금 시각"을 고정할 수 있게 함.
+* **`IClock` 추상화 도입** (`src/App.Core/Domain/Services/IClock.cs` + `SystemClock.cs`): `DateTime.Now`를 직접 쓰지 않고 `IClock.Now`로 주입받아, 나중에 테스트에서 "지금 시각"을 고정할 수 있게 함.
+  이 앱은 한국 사용자 전용이라 `Now`는 UTC가 아닌 로컬(KST) 시각을 반환한다 — 최초엔 `UtcNow`였다가, `DueDate`(로컬 시각)와 기준이 달라 `CheckDueSoon`의 마감 임박 판정이 9시간 밀리는 버그가 발견되어 로컬 시각으로 통일함. 상세 내용과 다중 시간대 지원 시 손봐야 할 지점 목록은 [docs/timezone-policy.md](./timezone-policy.md) 참고.
 * **`AddTodo`에서 불변식 검증**: `Recurrence != null`인데 `dueDate == null`이면 `ArgumentException`. `RecurrenceRule.ComputeNext`가 non-null `DateTime`만 받는다고 가정하는 전제(위 섹션 참고)를 여기서 실제로 지킴.
 * `CompleteTodo`가 존재하지 않는 `id`를 받으면 `InvalidOperationException`.
 

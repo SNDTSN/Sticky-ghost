@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using App.Core.Domain.Entities;
 using App.Core.Domain.Events;
@@ -18,6 +19,7 @@ public partial class MainWindow : Window
     // TODO: 임시 배선. App.Platform.Windows 구현/DI 컨테이너가 생기면 정식 조립 방식으로 교체.
     private readonly IMemoRepository _memoRepository;
     private readonly IWindowBehavior _windowBehavior = new StubWindowBehavior();
+    private readonly List<MemoWindow> _memoWindows = new();
 
     public MainWindow()
     {
@@ -42,6 +44,11 @@ public partial class MainWindow : Window
             TimeSpan.FromMinutes(30));
 
         DataContext = new MainViewModel(todoRepository, categoryRepository, todoService);
+
+        foreach (var memo in _memoRepository.GetAll())
+            OpenMemoWindow(memo);
+
+        Closing += OnClosing;
     }
 
     private void OnNewMemoClick(object? sender, RoutedEventArgs e)
@@ -55,8 +62,21 @@ public partial class MainWindow : Window
             Height = 220,
         };
         _memoRepository.Save(memo);
+        OpenMemoWindow(memo);
+    }
 
+    private void OpenMemoWindow(MemoNote memo)
+    {
         var viewModel = new MemoNoteViewModel(memo, _memoRepository, _windowBehavior);
-        new MemoWindow(viewModel).Show();
+        var window = new MemoWindow(viewModel);
+        _memoWindows.Add(window);
+        window.Closed += (_, _) => _memoWindows.Remove(window);
+        window.Show();
+    }
+
+    private void OnClosing(object? sender, WindowClosingEventArgs e)
+    {
+        foreach (var window in _memoWindows)
+            window.FlushPendingSave();
     }
 }

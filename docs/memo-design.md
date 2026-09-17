@@ -89,3 +89,7 @@ CREATE TABLE MemoNote (
 - [x] `App.UI`에 `MemoWindow` 뷰/뷰모델 작성 — 저장/삭제/핀 토글/색상 변경까지 실행해서 육안으로 확인 완료
   - 주의: `ColorPicker`는 `FluentTheme`에 자동 포함되지 않음. `App.axaml`에 `avares://Avalonia.Controls.ColorPicker/Themes/Fluent/Fluent.xaml` StyleInclude를 추가해야 렌더링됨
   - 이번 구현은 `App.Platform.Stub`으로 임시 배선 (플랫폼 구현체 선택/DI 조립은 캐릭터 엔진 설계 때 함께 정리 예정, `MainWindow.axaml.cs`에 TODO 표시해둠)
+- [x] 메모 창 생명주기를 `OnAppStartup` 의사코드와 실제로 맞춤 (`MainWindow.axaml.cs`)
+  - 시작 시 `_memoRepository.GetAll()`을 순회해 저장된 메모 창을 전부 다시 엶 (`OpenMemoWindow` 공통 헬퍼로 새 메모 생성 경로와 통합)
+  - Avalonia 기본 `ShutdownMode`(`OnLastWindowClose`)로는 메모 창이 떠 있으면 메인 창을 닫아도 프로세스가 안 죽는 문제가 있어, `App.axaml.cs`에서 `ShutdownMode.OnMainWindowClose`로 명시 (메인 창 종료 = 앱 전체 종료)
+  - 메인 창이 닫힐 때 열려 있는 모든 메모 창의 디바운스 중인 위치/크기/내용 저장을 즉시 실행(`MemoWindow.FlushPendingSave`)하도록 해서, 강제 종료로 마지막 편집분이 유실되지 않게 함

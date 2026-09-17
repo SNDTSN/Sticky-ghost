@@ -31,10 +31,12 @@ public sealed class SqliteTodoRepository : ITodoRepository
             command.CommandText = """
                 INSERT INTO TodoItem
                     (Id, Title, CategoryId, IsImportant, IsUrgent, DueDate, IsCompleted, CreatedAt, CompletedAt,
-                     RecurrenceType, RecurrenceInterval, RecurrenceDaysOfWeek, RecurrenceEndDate, NotifiedDueSoon)
+                     RecurrenceType, RecurrenceInterval, RecurrenceDaysOfWeek, RecurrenceEndDate, NotifiedDueSoon,
+                     CompletionCount)
                 VALUES
                     ($Id, $Title, $CategoryId, $IsImportant, $IsUrgent, $DueDate, $IsCompleted, $CreatedAt, $CompletedAt,
-                     $RecurrenceType, $RecurrenceInterval, $RecurrenceDaysOfWeek, $RecurrenceEndDate, $NotifiedDueSoon)
+                     $RecurrenceType, $RecurrenceInterval, $RecurrenceDaysOfWeek, $RecurrenceEndDate, $NotifiedDueSoon,
+                     $CompletionCount)
                 ON CONFLICT(Id) DO UPDATE SET
                     Title = excluded.Title,
                     CategoryId = excluded.CategoryId,
@@ -48,7 +50,8 @@ public sealed class SqliteTodoRepository : ITodoRepository
                     RecurrenceInterval = excluded.RecurrenceInterval,
                     RecurrenceDaysOfWeek = excluded.RecurrenceDaysOfWeek,
                     RecurrenceEndDate = excluded.RecurrenceEndDate,
-                    NotifiedDueSoon = excluded.NotifiedDueSoon;
+                    NotifiedDueSoon = excluded.NotifiedDueSoon,
+                    CompletionCount = excluded.CompletionCount;
                 """;
 
             object daysOfWeekValue = item.Recurrence?.DaysOfWeek is { Count: > 0 } days
@@ -69,6 +72,7 @@ public sealed class SqliteTodoRepository : ITodoRepository
             command.Parameters.AddWithValue("$RecurrenceDaysOfWeek", daysOfWeekValue);
             command.Parameters.AddWithValue("$RecurrenceEndDate", (object?)item.Recurrence?.EndDate ?? DBNull.Value);
             command.Parameters.AddWithValue("$NotifiedDueSoon", item.NotifiedDueSoon);
+            command.Parameters.AddWithValue("$CompletionCount", item.CompletionCount);
 
             command.ExecuteNonQuery();
         }
@@ -195,6 +199,7 @@ public sealed class SqliteTodoRepository : ITodoRepository
             CompletedAt = reader.IsDBNull(completedAtOrdinal) ? null : reader.GetDateTime(completedAtOrdinal),
             Recurrence = recurrence,
             NotifiedDueSoon = reader.GetBoolean(reader.GetOrdinal("NotifiedDueSoon")),
+            CompletionCount = reader.GetInt32(reader.GetOrdinal("CompletionCount")),
         };
     }
 

@@ -35,7 +35,8 @@ public static class SqliteSchemaInitializer
                 RecurrenceDaysOfWeek INTEGER,
                 RecurrenceEndDate    TEXT,
 
-                NotifiedDueSoon      INTEGER NOT NULL DEFAULT 0
+                NotifiedDueSoon      INTEGER NOT NULL DEFAULT 0,
+                CompletionCount      INTEGER NOT NULL DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS ChecklistItem (
