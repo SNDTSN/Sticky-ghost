@@ -1,0 +1,13 @@
+# .NET build 산출물
+bin/
+obj/
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.user
+
+# SQLite 로컬 DB (개발용)
+*.db
+*.db-shm
+*.db-wal
