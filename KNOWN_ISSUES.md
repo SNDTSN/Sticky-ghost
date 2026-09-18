@@ -71,3 +71,17 @@ ADD COLUMN`으로 안 되는 구조 변경, 또는 앞으로 추가될 컬럼마
 GC 부담이 체감될 수준이 아니다.
 
 **개선 방향**: 필요해지면 `Dictionary<string, IBrush>` 정도로 간단히 캐싱 가능. 지금은 안 건드려도 됨.
+
+## 5. LLM 어댑터 자극 설명 템플릿 — 한국어 하드코딩
+
+**어디**: `App.Core/Domain/Services/CharacterReactionService.cs`의 `DescribeTodoEvent`/`DescribeKind`
+같은 자극→텍스트 템플릿.
+
+**증상**: TouchEvent/TodoEvent를 LLM에 넘길 자극 설명 문장으로 바꾸는 템플릿이 서비스 내부에 한국어
+고정 문자열로 박혀 있다.
+
+**왜 지금은 안 심각한가**: `design-draft.md`에 명시된 대로 지금은 한국인 사용자만 대상으로 하고 있어서
+당장 문제되지 않는다.
+
+**개선 방향**: 나중에 다국어 지원이 들어가면 이 템플릿들을 리소스 파일 등으로 분리해야 한다. 지금은
+설계 범위 밖.

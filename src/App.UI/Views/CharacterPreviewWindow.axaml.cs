@@ -16,6 +16,7 @@ public partial class CharacterPreviewWindow : Window
 {
     private const double StrokeThresholdPx = 8.0;
     private const int ReactionDurationMs = 1500;
+    private const int LineDurationMs = 3000;
 
     // 임시 하드코딩 — LLM 연동(App.Mcp의 set_expression)이 붙으면 이 매핑은 걷어내고 교체한다.
     private static readonly Dictionary<TouchKind, string> TestReactionExpression = new()
@@ -29,6 +30,7 @@ public partial class CharacterPreviewWindow : Window
     private CharacterPack? _pack;
     private DispatcherTimer? _blinkTimer;
     private DispatcherTimer? _reactionTimer;
+    private DispatcherTimer? _lineTimer;
 
     private Point? _pressStart;
     private Point _lastPoint;
@@ -156,7 +158,24 @@ public partial class CharacterPreviewWindow : Window
             ShowExpression(expressionId);
     }
 
-    private void ShowExpression(string expressionId)
+    /// <summary>App.Mcp의 say 툴 로직 테스트용 최소 오버레이 — 제대로 된 말풍선 UI는 별도 작업.</summary>
+    public void ShowLine(string text)
+    {
+        _lineTimer?.Stop();
+
+        LineLayer.Text = text;
+        LineLayer.IsVisible = true;
+
+        _lineTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(LineDurationMs) };
+        _lineTimer.Tick += (_, _) =>
+        {
+            _lineTimer?.Stop();
+            LineLayer.IsVisible = false;
+        };
+        _lineTimer.Start();
+    }
+
+    public void ShowExpression(string expressionId)
     {
         var expr = _pack!.Appearance.Expressions.FirstOrDefault(x => x.Id == expressionId);
         if (expr is null)
@@ -182,5 +201,6 @@ public partial class CharacterPreviewWindow : Window
     {
         _blinkTimer?.Stop();
         _reactionTimer?.Stop();
+        _lineTimer?.Stop();
     }
 }

@@ -6,9 +6,11 @@ using App.Core.Domain.Events;
 using App.Core.Domain.Repositories;
 using App.Core.Domain.Services;
 using App.Core.Infrastructure.FileSystem;
+using App.Core.Infrastructure.Ipc;
 using App.Core.Infrastructure.Sqlite;
 using App.Platform;
 using App.Platform.Stub;
+using App.UI.Services;
 using App.UI.ViewModels;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
@@ -22,6 +24,8 @@ public partial class MainWindow : Window
     private readonly IWindowBehavior _windowBehavior = new StubWindowBehavior();
     private readonly List<MemoWindow> _memoWindows = new();
     private readonly CharacterPackService _characterPackService;
+    private readonly CharacterIpcServer _characterIpcServer;
+    private CharacterPreviewWindow? _activeCharacterWindow;
 
     public MainWindow()
     {
@@ -50,6 +54,12 @@ public partial class MainWindow : Window
         var builtInPackPath = Path.Combine(AppContext.BaseDirectory, "CharacterPacks", "default");
         _characterPackService = new CharacterPackService(new JsonCharacterPackLoader(), builtInPackPath);
 
+        // App.Mcp(Claude가 스폰하는 별도 프로세스)가 명명 파이프로 say/setExpression을 보내면 여기서 받는다.
+        // 지금은 "캐릭터 미리보기" 창에만 반영 — 상시 캐릭터 오버레이 창은 별도 작업.
+        var ipcHandler = new CharacterIpcRequestHandler(_characterPackService, () => _activeCharacterWindow);
+        _characterIpcServer = new CharacterIpcServer(ipcHandler);
+        _characterIpcServer.Start();
+
         foreach (var memo in _memoRepository.GetAll())
             OpenMemoWindow(memo);
 
@@ -63,7 +73,14 @@ public partial class MainWindow : Window
         {
             var builtInPackPath = Path.Combine(AppContext.BaseDirectory, "CharacterPacks", "default");
             var outcome = _characterPackService.LoadPack(builtInPackPath);
-            new CharacterPreviewWindow(outcome.Pack).Show();
+            var window = new CharacterPreviewWindow(outcome.Pack);
+            _activeCharacterWindow = window;
+            window.Closed += (_, _) =>
+            {
+                if (_activeCharacterWindow == window)
+                    _activeCharacterWindow = null;
+            };
+            window.Show();
         }
         catch (InvalidOperationException ex)
         {
@@ -98,5 +115,7 @@ public partial class MainWindow : Window
     {
         foreach (var window in _memoWindows)
             window.FlushPendingSave();
+
+        _characterIpcServer.Stop();
     }
 }

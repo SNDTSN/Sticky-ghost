@@ -13,5 +13,8 @@
         <Image x:Name="BaseLayer" Stretch="None" />
         <Image x:Name="EyeClosedLayer" Stretch="None" IsVisible="False" />
         <Image x:Name="ExpressionLayer" Stretch="None" IsVisible="False" />
+        <!-- App.Mcp의 say 툴 로직 테스트용 최소 텍스트 오버레이 — 제대로 된 말풍선 UI는 별도 작업 -->
+        <TextBlock x:Name="LineLayer" Canvas.Left="0" Canvas.Top="0" IsVisible="False"
+                   Background="#CC000000" Foreground="White" Padding="6,3" TextWrapping="Wrap" MaxWidth="280" />
     </Canvas>
 </Window>
