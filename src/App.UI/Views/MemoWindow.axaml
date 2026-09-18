@@ -5,24 +5,37 @@
         x:Class="App.UI.Views.MemoWindow"
         x:DataType="vm:MemoNoteViewModel"
         Width="220" Height="220"
+        SystemDecorations="None"
         Title="메모">
 
+    <!-- SystemDecorations="None"이라 OS 타이틀바(및 그 자체 닫기 버튼)가 없다.
+         닫기는 아래 커스텀 ✕ 버튼(RequestCloseCommand) 하나뿐이라 확인 대화상자를 우회할 경로가 없다.
+         대신 이동/리사이즈를 OS가 대신 해주지 않으므로 헤더 드래그(BeginMoveDrag)와
+         우측 하단 리사이즈 그립(BeginResizeDrag)을 코드 비하인드에서 직접 구현한다. -->
     <Window.Resources>
         <conv:HexColorToBrushConverter x:Key="HexColorToBrushConverter" />
     </Window.Resources>
 
-    <Grid RowDefinitions="Auto,*" Background="{Binding ColorHex, Converter={StaticResource HexColorToBrushConverter}}">
-        <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Right" Margin="4" Spacing="4">
-            <ToggleButton Content="📌" IsChecked="{Binding IsPinned}" ToolTip.Tip="항상 위 표시" />
-            <ColorPicker Color="{Binding ColorValue}" ToolTip.Tip="색상 변경" />
-            <Button Content="✕" Command="{Binding RequestCloseCommand}" ToolTip.Tip="닫기" />
-        </StackPanel>
-        <TextBox Grid.Row="1"
-                 Text="{Binding Content}"
-                 AcceptsReturn="True"
-                 TextWrapping="Wrap"
-                 Background="Transparent"
-                 BorderThickness="0"
-                 Margin="8" />
-    </Grid>
+    <Panel>
+        <Grid RowDefinitions="Auto,*" Background="{Binding ColorHex, Converter={StaticResource HexColorToBrushConverter}}">
+            <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Right" Margin="4" Spacing="4"
+                        Background="Transparent" PointerPressed="OnHeaderPointerPressed">
+                <ToggleButton Content="📌" IsChecked="{Binding IsPinned}" ToolTip.Tip="항상 위 표시" />
+                <ColorPicker Color="{Binding ColorValue}" ToolTip.Tip="색상 변경" />
+                <Button Content="✕" Command="{Binding RequestCloseCommand}" ToolTip.Tip="닫기" />
+            </StackPanel>
+            <TextBox Grid.Row="1"
+                     Text="{Binding Content}"
+                     AcceptsReturn="True"
+                     TextWrapping="Wrap"
+                     Background="Transparent"
+                     BorderThickness="0"
+                     Margin="8" />
+        </Grid>
+
+        <TextBlock Text="◢" FontSize="12" Foreground="#55000000"
+                   HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                   Margin="0,0,1,1" Cursor="BottomRightCorner"
+                   PointerPressed="OnResizeGripPointerPressed" />
+    </Panel>
 </Window>

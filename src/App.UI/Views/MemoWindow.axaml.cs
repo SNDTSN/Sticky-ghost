@@ -1,6 +1,7 @@
 using System;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Threading;
 using App.UI.ViewModels;
 
@@ -35,6 +36,21 @@ public partial class MemoWindow : Window
         SizeChanged += (_, _) => RestartSaveTimer();
 
         Opened += (_, _) => viewModel.AttachWindowHandle(TryGetPlatformHandle()?.Handle ?? IntPtr.Zero);
+    }
+
+    // SystemDecorations="None"이라 OS가 제공하던 타이틀바 드래그 이동이 없다 — 헤더 영역 클릭 시 직접 이동을 시작한다.
+    // 헤더 안의 버튼(📌/색상/✕)이 눌리면 해당 컨트롤이 PointerPressed를 먼저 처리해서 여기까지 버블링되지 않는다.
+    private void OnHeaderPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+            BeginMoveDrag(e);
+    }
+
+    // OS 리사이즈 테두리가 없으므로 우측 하단 그립으로 대체한다.
+    private void OnResizeGripPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+            BeginResizeDrag(WindowEdge.SouthEast, e);
     }
 
     private void RestartSaveTimer()

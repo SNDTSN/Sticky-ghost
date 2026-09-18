@@ -1,17 +1,24 @@
+using System;
+using Microsoft.Data.Sqlite;
+
 namespace App.Core.Infrastructure.Sqlite;
 
 /// <summary>
 /// docs/todo-design.md의 DDL을 기준으로 스키마를 생성한다.
-/// 아직 스키마 변경 이력 관리가 필요 없는 단계라 별도 마이그레이션 도구 없이
-/// CREATE TABLE IF NOT EXISTS로만 처리한다.
+/// 테이블 자체는 CREATE TABLE IF NOT EXISTS로 처리하지만, 이미 배포된 DB에 나중에 컬럼이
+/// 추가되는 경우(예: TodoItem.CompletionCount)를 대비해 EnsureColumnExists로 누락된 컬럼만
+/// ALTER TABLE ADD COLUMN으로 보충한다. 테이블 구조 자체가 바뀌는(컬럼 삭제/이름변경 등) 수준의
+/// 변경까지 다루는 정식 버전 관리 마이그레이션은 아직 없음 — 필요해지면 KNOWN_ISSUES.md #2 참고.
 /// </summary>
 public static class SqliteSchemaInitializer
 {
     public static void EnsureCreated(string connectionString)
     {
         using var connection = SqliteConnectionHelper.OpenConnection(connectionString);
-        using var command = connection.CreateCommand();
-        command.CommandText = """
+
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = """
             CREATE TABLE IF NOT EXISTS Category (
                 Id          TEXT PRIMARY KEY,
                 Name        TEXT NOT NULL,
@@ -71,6 +78,37 @@ public static class SqliteSchemaInitializer
             CREATE INDEX IF NOT EXISTS idx_checklist_todo ON ChecklistItem(TodoItemId);
             CREATE INDEX IF NOT EXISTS idx_log_todo       ON CompletionLog(TodoItemId);
             """;
-        command.ExecuteNonQuery();
+            command.ExecuteNonQuery();
+        }
+
+        // TodoItem 테이블이 CompletionCount 추가 이전 스키마로 이미 존재하는 경우
+        // (CREATE TABLE IF NOT EXISTS는 이럴 때 아무 것도 안 하므로) 컬럼만 보충한다.
+        EnsureColumnExists(connection, "TodoItem", "CompletionCount", "INTEGER NOT NULL DEFAULT 0");
+    }
+
+    private static void EnsureColumnExists(SqliteConnection connection, string table, string column, string columnDefinition)
+    {
+        var columnExists = false;
+        using (var checkCommand = connection.CreateCommand())
+        {
+            checkCommand.CommandText = $"PRAGMA table_info({table});";
+            using var reader = checkCommand.ExecuteReader();
+            var nameOrdinal = reader.GetOrdinal("name");
+            while (reader.Read())
+            {
+                if (string.Equals(reader.GetString(nameOrdinal), column, StringComparison.OrdinalIgnoreCase))
+                {
+                    columnExists = true;
+                    break;
+                }
+            }
+        }
+
+        if (columnExists)
+            return;
+
+        using var alterCommand = connection.CreateCommand();
+        alterCommand.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {columnDefinition};";
+        alterCommand.ExecuteNonQuery();
     }
 }

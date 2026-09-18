@@ -93,3 +93,7 @@ CREATE TABLE MemoNote (
   - 시작 시 `_memoRepository.GetAll()`을 순회해 저장된 메모 창을 전부 다시 엶 (`OpenMemoWindow` 공통 헬퍼로 새 메모 생성 경로와 통합)
   - Avalonia 기본 `ShutdownMode`(`OnLastWindowClose`)로는 메모 창이 떠 있으면 메인 창을 닫아도 프로세스가 안 죽는 문제가 있어, `App.axaml.cs`에서 `ShutdownMode.OnMainWindowClose`로 명시 (메인 창 종료 = 앱 전체 종료)
   - 메인 창이 닫힐 때 열려 있는 모든 메모 창의 디바운스 중인 위치/크기/내용 저장을 즉시 실행(`MemoWindow.FlushPendingSave`)하도록 해서, 강제 종료로 마지막 편집분이 유실되지 않게 함
+- [x] 버그 수정: `MemoWindow`가 OS 기본 타이틀바를 쓰고 있어서, 커스텀 ✕ 버튼(`RequestCloseCommand`)이 아니라 타이틀바 자체의 OS 닫기 버튼을 누르면 확인 대화상자/빈 메모 삭제 로직을 완전히 우회하는 문제 발견.
+  `SystemDecorations="None"`으로 바꿔서 닫기 경로를 커스텀 ✕ 버튼 하나로 통일. 대신 OS가 대신 해주던 이동/리사이즈가 없어지므로
+  헤더 영역 `PointerPressed` → `BeginMoveDrag`(이동), 우측 하단 리사이즈 그립 `PointerPressed` → `BeginResizeDrag(WindowEdge.SouthEast, ...)`(리사이즈)를
+  `MemoWindow.axaml.cs`에 직접 구현 (`docs/design-draft.md`의 "메모리 누수 주의" 원칙과는 무관, 순수 UX 회귀 방지).

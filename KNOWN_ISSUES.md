@@ -24,20 +24,26 @@
 - 체크리스트 로딩을 `TodoItemId IN (...)` 한 번의 쿼리로 모아서 가져오거나, `TodoItem`/`ChecklistItem`을
   JOIN해서 한 번에 읽기.
 
-## 2. `SqliteSchemaInitializer` — 실제 스키마 마이그레이션 메커니즘이 없음
+## 2. `SqliteSchemaInitializer` — 실제 스키마 마이그레이션 메커니즘이 없음 (부분 해결)
 
 **어디**: `App.Core/Infrastructure/Sqlite/SqliteSchemaInitializer.cs`.
 
 **증상**: `CREATE TABLE IF NOT EXISTS`로만 스키마를 만든다. 테이블이 이미 존재하면 그 안의 컬럼 구성은
-전혀 안 건드린다. 이번에 `TodoItem.CompletionCount` 컬럼을 추가할 때, 마침 로컬에 기존 DB 파일이 없어서
-문제가 안 됐지만, 만약 이미 그 스키마로 저장된 DB(사용자에게 배포된 이후 등)가 존재하는 상태에서 컬럼을
-추가하면 `CREATE TABLE IF NOT EXISTS`는 아무 일도 안 하므로 **새 컬럼이 반영되지 않고, 그 컬럼을 참조하는
-INSERT/SELECT 쿼리가 전부 런타임 오류로 깨진다.**
+전혀 안 건드린다. `TodoItem.CompletionCount` 컬럼을 추가한 뒤 실제로 이 문제가 터졌다 — 컬럼 추가 전
+스키마로 이미 만들어져 있던 로컬 DB로 앱을 실행하니 `CREATE TABLE IF NOT EXISTS`가 아무 일도 안 해서
+새 컬럼이 반영되지 않았고, `SqliteTodoRepository.ReadTodoItem`이 `CompletionCount`를 읽으려다
+`ArgumentOutOfRangeException`으로 앱이 시작하자마자 크래시했다.
 
-**개선 방향**: 실제 배포가 시작되기 전에, `PRAGMA user_version` 등으로 스키마 버전을 추적하고 필요한
-`ALTER TABLE ... ADD COLUMN`을 순차 적용하는 간단한 마이그레이션 절차를 넣어야 한다. 지금 단계(문서 자체가
-"아직 마이그레이션 도구 없이 처리한다"고 명시)에서는 급하지 않지만, 배포 이후 스키마 변경이 필요해지는
-**첫 순간부터는 반드시** 해결하고 넘어가야 함.
+**적용한 임시 해결**: `EnsureColumnExists(connection, table, column, columnDefinition)` 헬퍼를 추가해서,
+`PRAGMA table_info(table)`로 컬럼 존재 여부를 확인하고 없으면 `ALTER TABLE ... ADD COLUMN`으로 보충한다.
+`EnsureCreated`가 테이블 생성 직후 `TodoItem.CompletionCount`에 대해 이 헬퍼를 호출하도록 배선함 — 기존
+로컬 DB(할 일/카테고리/메모 데이터 보존됨)로도 앱이 정상 기동되는 것까지 확인 완료.
+
+**아직 안 풀린 부분**: 이 헬퍼는 "컬럼 하나 추가"만 커버한다. 컬럼 삭제/이름 변경/타입 변경처럼 `ALTER TABLE
+ADD COLUMN`으로 안 되는 구조 변경, 또는 앞으로 추가될 컬럼마다 `EnsureCreated`에 호출을 일일이 늘어놓는 방식
+자체의 확장성 문제는 그대로 남아 있다. `PRAGMA user_version` 기반의 정식 버전 관리 마이그레이션은 실제
+배포가 시작되기 전에 넣어야 함 — 배포 이후 구조적 스키마 변경이 필요해지는 **첫 순간부터는 반드시** 해결하고
+넘어가야 함.
 
 ## 3. 메모 위젯 — 새 메모 캐스케이드 위치 미구현
 
