@@ -34,7 +34,7 @@ Sticky Ghost(이하 본 프로젝트)는 우카가카(伺か)에서 영감을 �
   * `App.Mcp` — Claude MCP 서버 모듈 (Core에서 분리, 인프라 성격)
 
 ## 참고 리포지토리
-* 雨衣ちゃんMCP[https://github.com/Uncle-Peke/ui-chan-mcp]
+* [雨衣ちゃんMCP](https://github.com/Uncle-Peke/ui-chan-mcp)
   * MCP 서버 = 캐릭터 위젯 구조. Electron + TS, PSD 레이어 표정, VoiSona Talk TTS 연동. Claude 연동(Model A: 수동 반응) 아키텍처 참고용.
 
 ### GitHub 토픽 서베이
