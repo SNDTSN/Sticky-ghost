@@ -5,6 +5,7 @@ using App.Core.Domain.Entities;
 using App.Core.Domain.Events;
 using App.Core.Domain.Repositories;
 using App.Core.Domain.Services;
+using App.Core.Infrastructure.FileSystem;
 using App.Core.Infrastructure.Sqlite;
 using App.Platform;
 using App.Platform.Stub;
@@ -20,6 +21,7 @@ public partial class MainWindow : Window
     private readonly IMemoRepository _memoRepository;
     private readonly IWindowBehavior _windowBehavior = new StubWindowBehavior();
     private readonly List<MemoWindow> _memoWindows = new();
+    private readonly CharacterPackService _characterPackService;
 
     public MainWindow()
     {
@@ -45,10 +47,28 @@ public partial class MainWindow : Window
 
         DataContext = new MainViewModel(todoRepository, categoryRepository, todoService);
 
+        var builtInPackPath = Path.Combine(AppContext.BaseDirectory, "CharacterPacks", "default");
+        _characterPackService = new CharacterPackService(new JsonCharacterPackLoader(), builtInPackPath);
+
         foreach (var memo in _memoRepository.GetAll())
             OpenMemoWindow(memo);
 
         Closing += OnClosing;
+    }
+
+    // TODO: 로더 검증용 임시 버튼 핸들러 — 표정 렌더링 붙으면 정식 캐릭터 창 조립 로직으로 교체.
+    private void OnCharacterPreviewClick(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var builtInPackPath = Path.Combine(AppContext.BaseDirectory, "CharacterPacks", "default");
+            var outcome = _characterPackService.LoadPack(builtInPackPath);
+            new CharacterPreviewWindow(outcome.Pack).Show();
+        }
+        catch (InvalidOperationException ex)
+        {
+            _ = ConfirmDialog.ShowAsync(this, ex.Message);
+        }
     }
 
     private void OnNewMemoClick(object? sender, RoutedEventArgs e)

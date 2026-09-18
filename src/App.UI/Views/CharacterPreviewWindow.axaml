@@ -1,0 +1,13 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        x:Class="App.UI.Views.CharacterPreviewWindow"
+        Title="캐릭터 미리보기"
+        SizeToContent="WidthAndHeight"
+        CanResize="False">
+
+    <!-- 로더 검증용 임시 창 — 표정/깜빡임/터치 없이 baseImage만 표시한다. -->
+    <Image x:Name="BaseImage" Stretch="None" />
+</Window>

@@ -208,8 +208,8 @@ CharacterPackLoadOutcome   // 호출부(App.UI)가 "기본 캐릭터로 전환�
 - [x] 대사+표정 출력 구조 — 어댑터별 방식(OpenAI/Gemini JSON vs `App.Mcp` 툴 분리) 결정
 - [x] 프롬프트 인젝션 최소 가이드라인 결정
 - [x] `App.Core` 캐릭터 팩 로더 pseudo code (매니페스트 파싱, 스키마 검증, 로딩 실패 시 폴백) — `ICharacterPackLoader`(순수 파싱/검증) + `CharacterPackService`(폴백 정책, 내장 기본 팩으로 전환) 분리로 확정
-- [ ] `App.Core` 캐릭터 팩 로더 실제 구현 (엔티티 클래스, `ICharacterPackLoader`/`CharacterPackService` 코드화, 예제 캐릭터팩 `manifest.json` 작성) — **다음 세션 시작 지점**
-- [ ] 표정 렌더링(`App.UI`) — 오버레이 PNG를 baseImage 위 offset 좌표에 표시/제거
+- [x] `App.Core` 캐릭터 팩 로더 실제 구현 (엔티티 클래스, `ICharacterPackLoader`/`CharacterPackService` 코드화, 예제 캐릭터팩 `manifest.json` 작성) — 예제 팩은 `assets/characters/default/`, App.UI 빌드 출력에 `CharacterPacks/`로 복사(AvaloniaResource 아님, 이용자 수정 가능하게 일반 파일로). MainWindow "캐릭터 미리보기" 임시 버튼으로 baseImage까지 실제 렌더링 확인 완료
+- [ ] 표정 렌더링(`App.UI`) — 오버레이 PNG를 baseImage 위 offset 좌표에 표시/제거 — **다음 세션 시작 지점**
 - [ ] 찌르기/쓰다듬기 판정 로직 (클릭 vs 드래그 궤적으로 `TouchEvent.kind` 결정)
 - [ ] `App.Mcp`에 `say`/`set_expression` 툴 추가
 - [ ] OpenAI/Gemini 어댑터 (LLM 응답 JSON 파싱 포함)
