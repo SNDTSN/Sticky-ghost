@@ -1,8 +1,9 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using App.Core.Domain.Entities;
 using App.Core.Domain.Events;
+using App.Core.Domain.Services;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -18,16 +19,15 @@ public partial class CharacterPreviewWindow : Window
     private const int ReactionDurationMs = 1500;
     private const int LineDurationMs = 3000;
 
-    // 임시 하드코딩 — LLM 연동(App.Mcp의 set_expression)이 붙으면 이 매핑은 걷어내고 교체한다.
-    private static readonly Dictionary<TouchKind, string> TestReactionExpression = new()
-    {
-        [TouchKind.Poke] = "annoyed",
-        [TouchKind.Stroke] = "love",
-    };
-
     private readonly Random _random = new();
 
     private CharacterPack? _pack;
+    private CharacterReactionService? _reactionService;
+    // 창 생명주기 전체에 대응하는 토큰 — 요청마다 새로 만들지 않고 창이 닫힐 때만 취소한다.
+    private CancellationTokenSource? _windowCts;
+    // 이전 LLM 응답을 기다리는 중이면 새 터치는 호출 자체를 하지 않는다(연타로 인한 과금 방지).
+    private bool _reactionInFlight;
+
     private DispatcherTimer? _blinkTimer;
     private DispatcherTimer? _reactionTimer;
     private DispatcherTimer? _lineTimer;
@@ -42,9 +42,11 @@ public partial class CharacterPreviewWindow : Window
         InitializeComponent();
     }
 
-    public CharacterPreviewWindow(CharacterPack pack) : this()
+    public CharacterPreviewWindow(CharacterPack pack, CharacterReactionService reactionService) : this()
     {
         _pack = pack;
+        _reactionService = reactionService;
+        _windowCts = new CancellationTokenSource();
         Title = $"캐릭터 미리보기 - {pack.Name}";
 
         var baseBitmap = new Bitmap(pack.Appearance.BaseImage);
@@ -152,10 +154,31 @@ public partial class CharacterPreviewWindow : Window
         return Math.Sqrt(dx * dx + dy * dy);
     }
 
-    private void HandleTouchEvent(TouchEvent touchEvent)
+    private async void HandleTouchEvent(TouchEvent touchEvent)
     {
-        if (TestReactionExpression.TryGetValue(touchEvent.Kind, out var expressionId))
-            ShowExpression(expressionId);
+        if (_reactionInFlight)
+            return;
+
+        _reactionInFlight = true;
+        try
+        {
+            var result = await _reactionService!.ReactToTouchAsync(touchEvent, _windowCts!.Token);
+            if (_windowCts.IsCancellationRequested)
+                return;
+
+            if (result.ExpressionId is not null)
+                ShowExpression(result.ExpressionId);
+            if (result.Line is not null)
+                ShowLine(result.Line);
+        }
+        catch (OperationCanceledException)
+        {
+            // 창이 닫히면서 취소된 경우 — 무시.
+        }
+        finally
+        {
+            _reactionInFlight = false;
+        }
     }
 
     /// <summary>App.Mcp의 say 툴 로직 테스트용 최소 오버레이 — 제대로 된 말풍선 UI는 별도 작업.</summary>
@@ -202,5 +225,6 @@ public partial class CharacterPreviewWindow : Window
         _blinkTimer?.Stop();
         _reactionTimer?.Stop();
         _lineTimer?.Stop();
+        _windowCts?.Cancel();
     }
 }

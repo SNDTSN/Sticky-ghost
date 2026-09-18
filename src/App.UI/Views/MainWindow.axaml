@@ -116,6 +116,7 @@
             <Button Content="새 메모" Click="OnNewMemoClick" HorizontalAlignment="Left" />
             <!-- TODO: 캐릭터 팩 로더 검증용 임시 버튼 — 표정 렌더링 붙으면 정식 캐릭터 창으로 교체 -->
             <Button Content="캐릭터 미리보기" Click="OnCharacterPreviewClick" HorizontalAlignment="Left" />
+            <Button Content="설정" Click="OnSettingsClick" HorizontalAlignment="Left" />
         </StackPanel>
 
         <ListBox ItemsSource="{Binding Items}">

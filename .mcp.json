@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "sticky-ghost-character": {
+      "command": "D:\\sticky-ghost\\src\\App.Mcp\\bin\\Debug\\net8.0\\App.Mcp.exe",
+      "args": []
+    }
+  }
+}

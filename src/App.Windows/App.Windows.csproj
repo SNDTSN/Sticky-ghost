@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- 실제 OS 진입점(WinExe) + 플랫폼 구현 조립 루트. App.UI는 이 프로젝트를 통해서만 실행되며,
+         App.Platform.Windows(DPAPI 등 Win32 종속 구현)를 참조하는 건 이 프로젝트뿐이어야 한다. -->
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.22" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\App.UI\App.UI.csproj" />
+    <ProjectReference Include="..\App.Platform\App.Platform.csproj" />
+    <ProjectReference Include="..\App.Platform.Windows\App.Platform.Windows.csproj" />
+  </ItemGroup>
+</Project>

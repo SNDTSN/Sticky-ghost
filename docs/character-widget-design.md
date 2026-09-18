@@ -410,6 +410,17 @@ Avalonia 창 조작이라는 사실은 모른다.
   `CharacterPreviewWindow`에만 반영 — 상시 캐릭터 오버레이 창과 제대로 된 말풍선 UI는 별도 작업.
 - [ ] Gemini 어댑터 구현체 (`ICharacterLlmAdapter` 구현 — REST 호출 + JSON 스키마 강제 응답 파싱). Gemini
   API 구독이 없어 당장 보류 — 필요해지면 Google AI Studio 무료 티어 키(구독/카드 불필요)로 검증 예정.
-- [ ] `App.UI` 배선 — `CharacterReactionService`를 `MainWindow`에서 임시 하드코딩된 provider/secret 이름으로 조립,
-  `CharacterPreviewWindow`의 Poke/Stroke 하드코딩 매핑을 실제 호출로 교체
-- [ ] Claude Desktop/Code 설정으로 `App.Mcp`를 실제 스폰해서 MCP 프로토콜 전체 왕복(툴 디스커버리 포함) 검증
+- [x] `App.UI` 배선 — `CharacterReactionService`(OpenAI 어댑터 경로)를 `MainWindow`에 조립, `CharacterPreviewWindow`의
+  Poke/Stroke 하드코딩 매핑(annoyed/love)을 실제 `ReactToTouchAsync` 호출로 교체. API 키 입력용 `SettingsWindow` 신규
+  추가(`ISecretStore.SaveSecret`, 저장된 값은 재노출 안 함). 이전 응답을 기다리는 동안 새 터치는 호출 자체를 무시해서
+  연타로 인한 과금을 방지. 실제 OpenAI 응답으로 대사+표정 반영까지 사용자가 직접 확인 완료.
+  — 이 과정에서 `App.UI`가 `App.Platform.Windows`(DPAPI)를 직접 참조해야 하는 문제가 드러나 PORTING.md 설계 원칙
+  ("App.UI는 구체 플랫폼 구현을 직접 참조하지 않는다")을 어기게 됨을 발견 → 실행 진입점을 `App.Windows`(신규,
+  `net8.0-windows`, WinExe)로 분리하고 `App.UI`는 다시 순수 라이브러리(`net8.0`)로 되돌림.
+  `App.UI.App.SecretStoreFactory` 델리게이트를 통해 `App.Windows`의 `Program.cs`가 `DpapiSecretStore`를 조립해서
+  주입하는 구조로 변경. `MainWindow` 생성자도 `ISecretStore`를 주입받는 형태로 변경.
+- [x] Claude Desktop/Code 설정으로 `App.Mcp`를 실제 스폰해서 MCP 프로토콜 전체 왕복(툴 디스커버리 포함) 검증 —
+  `.mcp.json`(Claude Code, 프로젝트 스코프)과 `%APPDATA%\Claude\claude_desktop_config.json`(Claude Desktop)에
+  `sticky-ghost-character` 서버로 등록(`App.Mcp.exe` Debug 빌드 경로 직접 지정). Claude Code에서 승인 후 `say`/
+  `set_expression` 툴 디스커버리 확인, `say` 실제 호출까지 성공(캐릭터 미리보기 창에 말풍선 반영 확인 완료).
+  Claude Desktop 쪽은 별도 확인 안 함(Claude Code 경로로 전체 왕복이 이미 검증됨).

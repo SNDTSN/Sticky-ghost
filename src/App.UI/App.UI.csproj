@@ -1,9 +1,9 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>WinExe</OutputType>
+    <!-- 실행 진입점(WinExe)이 아니라 라이브러리 — Windows 실행 진입점은 App.Windows 프로젝트.
+         App.UI 자체는 플랫폼 구현(App.Platform.Windows 등)을 참조하지 않아야 Mac 이식 시 그대로 재사용 가능. -->
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
-    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 
   <ItemGroup>
@@ -35,7 +35,7 @@
   <ItemGroup>
     <ProjectReference Include="..\App.Core\App.Core.csproj" />
     <ProjectReference Include="..\App.Platform\App.Platform.csproj" />
-    <!-- TODO: 임시 배선. App.Platform.Windows 구현이 나오면 실제 조립(DI) 방식과 함께 정리 -->
+    <!-- TODO: 임시 배선. DI 컨테이너가 생기면 정식 조립 방식으로 교체 -->
     <ProjectReference Include="..\App.Platform.Stub\App.Platform.Stub.csproj" />
   </ItemGroup>
 </Project>
