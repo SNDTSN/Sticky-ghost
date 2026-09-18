@@ -33,6 +33,7 @@ CharacterPack (schemaVersion: 1)
     appearance:
         baseImage: string              // 예: "mainimage.png"
         eyeClosedImage: string?        // 눈 깜빡임용, 없으면 깜빡임 기능 비활성
+        eyeClosedOffset: {x,y}?        // eyeClosedImage 배치 좌표. 생략 시 {0,0} — 위 "오버레이 배치" 규칙과 동일
         blink:
             minIntervalMs: int
             maxIntervalMs: int
@@ -186,6 +187,8 @@ CharacterPackLoadOutcome   // 호출부(App.UI)가 "기본 캐릭터로 전환�
 * 찌르기/쓰다듬기 판정이 발생하면 캐릭터가 각각의 판정에 맞는 대사를 출력한다.
 * 찌르기/쓰다듬기 판정이 발생하는 좌표는 여러 개 지정할 수 있으며 이를 통해 반응하는 부위를 세분화할 수 있다.
 * 단, 리포지토리 예제 캐릭터는 단일 좌표 구역으로 끝낸다. 리포지토리 예제 캐릭터는 최대한 적은 그림, 적은 세팅으로도 캐릭터를 만들 수 있다는 것을 보여주어 캐릭터 제작자의 심적 부담을 덜어 주는 것이 목적이다.
+* **판정 로직**: 포인터 다운 시점에 `touchRegions`를 순회해 눌린 좌표를 포함하는 첫 영역(먼저 선언된 영역 우선)을 고정하고, 뗄 때까지의 누적 이동 거리가 임계값(8px) 이상이면 Stroke, 미만이면 Poke로 판정. 이 임계값과 반응 표정 유지 시간(1.5초)은 팩 제작자가 조정할 필요가 없다고 보고 매니페스트가 아니라 코드 상수로 고정.
+* **(임시) 반응 표정**: `App.Mcp`의 `say`/`set_expression` 툴이 붙기 전까지는 `CharacterPreviewWindow`에 Poke→`annoyed`, Stroke→`love`로 하드코딩된 테스트용 매핑만 존재한다 — 대사는 아직 없음. LLM 연동이 붙으면 이 하드코딩은 걷어내고 LLM이 표정(및 대사)을 결정하는 흐름으로 교체.
 
 ### To-do list에 반응
 * 이미 초석은 깔아뒀다(아마...!)
@@ -209,7 +212,9 @@ CharacterPackLoadOutcome   // 호출부(App.UI)가 "기본 캐릭터로 전환�
 - [x] 프롬프트 인젝션 최소 가이드라인 결정
 - [x] `App.Core` 캐릭터 팩 로더 pseudo code (매니페스트 파싱, 스키마 검증, 로딩 실패 시 폴백) — `ICharacterPackLoader`(순수 파싱/검증) + `CharacterPackService`(폴백 정책, 내장 기본 팩으로 전환) 분리로 확정
 - [x] `App.Core` 캐릭터 팩 로더 실제 구현 (엔티티 클래스, `ICharacterPackLoader`/`CharacterPackService` 코드화, 예제 캐릭터팩 `manifest.json` 작성) — 예제 팩은 `assets/characters/default/`, App.UI 빌드 출력에 `CharacterPacks/`로 복사(AvaloniaResource 아님, 이용자 수정 가능하게 일반 파일로). MainWindow "캐릭터 미리보기" 임시 버튼으로 baseImage까지 실제 렌더링 확인 완료
-- [ ] 표정 렌더링(`App.UI`) — 오버레이 PNG를 baseImage 위 offset 좌표에 표시/제거 — **다음 세션 시작 지점**
-- [ ] 찌르기/쓰다듬기 판정 로직 (클릭 vs 드래그 궤적으로 `TouchEvent.kind` 결정)
-- [ ] `App.Mcp`에 `say`/`set_expression` 툴 추가
+- [x] 표정 렌더링(`App.UI`) — `CharacterPreviewWindow`를 Canvas 기반으로 전환, baseImage/눈감김/표정 3개 레이어를 offset 좌표에 표시. `eyeClosedImage`에도 `eyeClosedOffset` 필드 추가(기존엔 항상 (0,0)으로 오해할 여지가 있었음 — 예제 팩의 눈감김 패치가 얼굴 전체가 아니라 눈 주변만 덮는 작은 이미지라 오프셋이 필요했음)
+- [x] 눈 깜빡임 애니메이션 — `blink.minIntervalMs~maxIntervalMs` 사이에서 깜빡일 때마다 간격을 새로 랜덤 추첨(고정 반복 타이머 아님)해 리듬이 감지되지 않게 함
+- [x] 찌르기/쓰다듬기 판정 로직 (클릭 vs 드래그 궤적으로 `TouchEvent.Kind` 결정) — 실제 실행해서 Poke→`annoyed`/Stroke→`love` 반응까지 정상 동작 확인
+- [ ] 예제 팩 `eyeClosedOffset` 미세 조정 — 이미지 전체를 50%로 리사이즈(`mainimage.png` 304×324) 후 `(74, 112)`로 재측정, 왼쪽 위로 약간 튀는 정도까지 좁혔음(기능 자체엔 지장 없어 우선순위 낮음, 나중에 계속)
+- [ ] `App.Mcp`에 `say`/`set_expression` 툴 추가 (현재 `CharacterPreviewWindow`의 Poke/Stroke→표정 하드코딩을 대체)
 - [ ] OpenAI/Gemini 어댑터 (LLM 응답 JSON 파싱 포함)

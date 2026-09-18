@@ -1,11 +1,12 @@
 {
   "schemaVersion": 1,
   "id": "default",
-  "name": "기본 고스트",
+  "name": "가이스트",
   "author": "Sticky Ghost",
   "appearance": {
     "baseImage": "mainimage.png",
     "eyeClosedImage": "mainimage_eyeclosed.png",
+    "eyeClosedOffset": { "x": 74, "y": 112 },
     "blink": { "minIntervalMs": 2000, "maxIntervalMs": 6000, "durationMs": 150 },
     "expressions": [
       { "id": "angry", "image": "angry.png" },
@@ -15,7 +16,7 @@
       { "id": "pleasure", "image": "pleasure.png" }
     ],
     "touchRegions": [
-      { "id": "body", "rect": { "x": 0, "y": 0, "width": 609, "height": 649 } }
+      { "id": "body", "rect": { "x": 0, "y": 0, "width": 304, "height": 324 } }
     ]
   },
   "personality": {

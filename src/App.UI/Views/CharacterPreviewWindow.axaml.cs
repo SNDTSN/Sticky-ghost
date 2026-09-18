@@ -1,12 +1,40 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using App.Core.Domain.Entities;
+using App.Core.Domain.Events;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Media.Imaging;
+using Avalonia.Threading;
 
 namespace App.UI.Views;
 
-/// <summary>캐릭터팩 로더 검증용 임시 창. baseImage만 그린다 — 표정 렌더링은 별도 작업.</summary>
+/// <summary>캐릭터팩 렌더링 확인용 창. baseImage + 눈 깜빡임/표정 오버레이, 찌르기/쓰다듬기 반응까지 표시한다.</summary>
 public partial class CharacterPreviewWindow : Window
 {
+    private const double StrokeThresholdPx = 8.0;
+    private const int ReactionDurationMs = 1500;
+
+    // 임시 하드코딩 — LLM 연동(App.Mcp의 set_expression)이 붙으면 이 매핑은 걷어내고 교체한다.
+    private static readonly Dictionary<TouchKind, string> TestReactionExpression = new()
+    {
+        [TouchKind.Poke] = "annoyed",
+        [TouchKind.Stroke] = "love",
+    };
+
+    private readonly Random _random = new();
+
+    private CharacterPack? _pack;
+    private DispatcherTimer? _blinkTimer;
+    private DispatcherTimer? _reactionTimer;
+
+    private Point? _pressStart;
+    private Point _lastPoint;
+    private double _dragDistance;
+    private TouchRegion? _activeRegion;
+
     public CharacterPreviewWindow()
     {
         InitializeComponent();
@@ -14,7 +42,145 @@ public partial class CharacterPreviewWindow : Window
 
     public CharacterPreviewWindow(CharacterPack pack) : this()
     {
+        _pack = pack;
         Title = $"캐릭터 미리보기 - {pack.Name}";
-        BaseImage.Source = new Bitmap(pack.Appearance.BaseImage);
+
+        var baseBitmap = new Bitmap(pack.Appearance.BaseImage);
+        RootCanvas.Width = baseBitmap.PixelSize.Width;
+        RootCanvas.Height = baseBitmap.PixelSize.Height;
+        BaseLayer.Source = baseBitmap;
+        Canvas.SetLeft(BaseLayer, 0);
+        Canvas.SetTop(BaseLayer, 0);
+
+        if (pack.Appearance.EyeClosedImage is not null)
+        {
+            EyeClosedLayer.Source = new Bitmap(pack.Appearance.EyeClosedImage);
+            Canvas.SetLeft(EyeClosedLayer, pack.Appearance.EyeClosedOffset.X);
+            Canvas.SetTop(EyeClosedLayer, pack.Appearance.EyeClosedOffset.Y);
+        }
+
+        RootCanvas.PointerPressed += OnPointerPressed;
+        RootCanvas.PointerMoved += OnPointerMoved;
+        RootCanvas.PointerReleased += OnPointerReleased;
+        Closed += OnClosed;
+
+        StartBlinkLoop();
+    }
+
+    // (B) 눈 깜빡임 — 깜빡일 때마다 다음 간격을 새로 뽑아 규칙적인 리듬이 생기지 않게 한다.
+    private void StartBlinkLoop()
+    {
+        if (_pack!.Appearance.EyeClosedImage is null || _pack.Appearance.Blink is null)
+            return;
+
+        ScheduleNextBlink();
+    }
+
+    private void ScheduleNextBlink()
+    {
+        var blink = _pack!.Appearance.Blink!;
+        var waitMs = _random.Next(blink.MinIntervalMs, blink.MaxIntervalMs + 1);
+
+        _blinkTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(waitMs) };
+        _blinkTimer.Tick += (_, _) =>
+        {
+            _blinkTimer?.Stop();
+            PlayBlink(blink.DurationMs);
+        };
+        _blinkTimer.Start();
+    }
+
+    private void PlayBlink(int durationMs)
+    {
+        EyeClosedLayer.IsVisible = true;
+
+        var closeTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(durationMs) };
+        closeTimer.Tick += (_, _) =>
+        {
+            closeTimer.Stop();
+            EyeClosedLayer.IsVisible = false;
+            ScheduleNextBlink();
+        };
+        closeTimer.Start();
+    }
+
+    // (C) 찌르기/쓰다듬기 판정 — 포인터 다운 지점의 touchRegion을 고정하고, 뗄 때까지의 누적 이동 거리로 Poke/Stroke를 가른다.
+    private void OnPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        var point = e.GetPosition(RootCanvas);
+        var region = _pack!.Appearance.TouchRegions
+            .FirstOrDefault(r => r.Rect.Contains(point.X, point.Y));
+        if (region is null)
+            return;
+
+        _activeRegion = region;
+        _pressStart = point;
+        _lastPoint = point;
+        _dragDistance = 0;
+        e.Pointer.Capture(RootCanvas);
+    }
+
+    private void OnPointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (_pressStart is null)
+            return;
+
+        var point = e.GetPosition(RootCanvas);
+        _dragDistance += Distance(_lastPoint, point);
+        _lastPoint = point;
+    }
+
+    private void OnPointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (_pressStart is null || _activeRegion is null)
+            return;
+
+        var kind = _dragDistance >= StrokeThresholdPx ? TouchKind.Stroke : TouchKind.Poke;
+        HandleTouchEvent(new TouchEvent(_activeRegion.Id, kind));
+
+        _pressStart = null;
+        _activeRegion = null;
+        e.Pointer.Capture(null);
+    }
+
+    private static double Distance(Point a, Point b)
+    {
+        var dx = b.X - a.X;
+        var dy = b.Y - a.Y;
+        return Math.Sqrt(dx * dx + dy * dy);
+    }
+
+    private void HandleTouchEvent(TouchEvent touchEvent)
+    {
+        if (TestReactionExpression.TryGetValue(touchEvent.Kind, out var expressionId))
+            ShowExpression(expressionId);
+    }
+
+    private void ShowExpression(string expressionId)
+    {
+        var expr = _pack!.Appearance.Expressions.FirstOrDefault(x => x.Id == expressionId);
+        if (expr is null)
+            return;
+
+        _reactionTimer?.Stop();
+
+        ExpressionLayer.Source = new Bitmap(expr.Image);
+        Canvas.SetLeft(ExpressionLayer, expr.Offset.X);
+        Canvas.SetTop(ExpressionLayer, expr.Offset.Y);
+        ExpressionLayer.IsVisible = true;
+
+        _reactionTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(ReactionDurationMs) };
+        _reactionTimer.Tick += (_, _) =>
+        {
+            _reactionTimer?.Stop();
+            ExpressionLayer.IsVisible = false;
+        };
+        _reactionTimer.Start();
+    }
+
+    private void OnClosed(object? sender, EventArgs e)
+    {
+        _blinkTimer?.Stop();
+        _reactionTimer?.Stop();
     }
 }

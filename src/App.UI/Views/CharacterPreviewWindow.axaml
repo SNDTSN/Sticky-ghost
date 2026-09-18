@@ -8,6 +8,10 @@
         SizeToContent="WidthAndHeight"
         CanResize="False">
 
-    <!-- 로더 검증용 임시 창 — 표정/깜빡임/터치 없이 baseImage만 표시한다. -->
-    <Image x:Name="BaseImage" Stretch="None" />
+    <!-- baseImage 위에 눈 깜빡임/표정 오버레이를 offset 좌표로 얹는 캔버스 -->
+    <Canvas x:Name="RootCanvas">
+        <Image x:Name="BaseLayer" Stretch="None" />
+        <Image x:Name="EyeClosedLayer" Stretch="None" IsVisible="False" />
+        <Image x:Name="ExpressionLayer" Stretch="None" IsVisible="False" />
+    </Canvas>
 </Window>

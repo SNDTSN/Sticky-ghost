@@ -13,6 +13,7 @@ public sealed class Appearance
 {
     public required string BaseImage { get; set; }
     public string? EyeClosedImage { get; set; }
+    public Offset EyeClosedOffset { get; set; } = new();
     public BlinkSettings? Blink { get; set; }
     public List<Expression> Expressions { get; set; } = new();
     public List<TouchRegion> TouchRegions { get; set; } = new();
@@ -50,6 +51,8 @@ public sealed class Rect
     public int Y { get; set; }
     public int Width { get; set; }
     public int Height { get; set; }
+
+    public bool Contains(double x, double y) => x >= X && x < X + Width && y >= Y && y < Y + Height;
 }
 
 public sealed class Personality

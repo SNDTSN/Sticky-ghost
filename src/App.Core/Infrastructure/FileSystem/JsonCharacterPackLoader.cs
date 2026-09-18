@@ -134,6 +134,11 @@ public sealed class JsonCharacterPackLoader : ICharacterPackLoader
                 EyeClosedImage = appearance.EyeClosedImage is null
                     ? null
                     : Path.GetFullPath(Path.Combine(packRoot, appearance.EyeClosedImage)),
+                EyeClosedOffset = new Offset
+                {
+                    X = appearance.EyeClosedOffset?.X ?? 0,
+                    Y = appearance.EyeClosedOffset?.Y ?? 0,
+                },
                 Blink = appearance.Blink is null
                     ? null
                     : new BlinkSettings
@@ -206,6 +211,8 @@ public sealed class JsonCharacterPackLoader : ICharacterPackLoader
         public string? BaseImage { get; set; }
         [JsonPropertyName("eyeClosedImage")]
         public string? EyeClosedImage { get; set; }
+        [JsonPropertyName("eyeClosedOffset")]
+        public OffsetDto? EyeClosedOffset { get; set; }
         [JsonPropertyName("blink")]
         public BlinkDto? Blink { get; set; }
         [JsonPropertyName("expressions")]
