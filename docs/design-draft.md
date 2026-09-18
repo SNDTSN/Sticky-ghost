@@ -27,7 +27,10 @@ Sticky Ghost(이하 본 프로젝트)는 우카가카(伺か)에서 영감을 �
 * **캐릭터 에셋 포맷**: PNG 레이어 + JSON 매니페스트. 모딩 자유도를 우선하여 Live2D/Spine 같은 유료·라이선스 종속 툴체인은 배제.
 * **모듈 구조** (`src/` 하위):
   * `App.Core` — to-do/메모 도메인 로직, SQLite 리포지토리 구현(플랫폼 무관이므로 Core에 포함), LLM 어댑터, 캐릭터 팩 로딩, 이벤트 버스
-  * `App.UI` — Avalonia 뷰/뷰모델
+  * `App.UI` — Avalonia 뷰/뷰모델 (플랫폼 무관 라이브러리 — 구체 플랫폼 구현은 직접 참조하지 않음, 아래 `App.Windows` 참고)
+  * `App.Windows` — Windows 실행 진입점(WinExe, `net8.0-windows`). `App.UI` + `App.Platform.Windows`를 둘 다 참조하는
+    유일한 프로젝트로, 여기서 구체 플랫폼 구현을 조립해 `App.UI`에 주입한다. Mac 이식 시 같은 역할의 `App.Mac`을 추가
+    (`docs/PORTING.md` 참고)
   * `App.Platform` — 플랫폼 인터페이스 정의만 (`IWindowBehavior`, `ISecretStore`, `IIdleDetector`)
   * `App.Platform.Windows` — Windows 구현체 (P/Invoke, DPAPI 등)
   * `App.Platform.Stub` — 아무 동작도 하지 않는 기본/테스트용 구현체

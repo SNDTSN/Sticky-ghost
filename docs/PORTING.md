@@ -5,14 +5,20 @@
 ## 설계 원칙
 
 * `App.Platform`은 **인터페이스만** 정의한다. 구현은 `App.Platform.Windows`, `App.Platform.Stub`, (추후) `App.Platform.Mac`에 둔다.
-* `App.Core`, `App.UI`는 이 인터페이스만 알고, 구체 구현을 직접 참조하지 않는다 (DI로 주입).
+* `App.Core`, `App.UI`는 이 인터페이스만 알고, 구체 구현을 직접 참조하지 않는다 (DI로 주입). 실제로 구체 구현을 `new`해서
+  주입하는 조립 루트는 플랫폼별 실행 진입점 프로젝트(Windows는 `App.Windows`, TargetFramework `net8.0-windows`)뿐이다.
+  `App.UI`가 실수로 `App.Platform.Windows`를 참조하려 하면 TargetFramework 불일치(`net8.0` vs `net8.0-windows`)로
+  빌드가 바로 깨지므로, 이 원칙이 프로젝트 파일 레벨에서 강제된다. Mac 이식 시에도 같은 패턴으로 `App.Mac` 진입점
+  프로젝트를 추가하면 된다 (`src/App.Windows/README.md` 참고).
 * `App.Platform.Stub`은 항상 최신 상태로 유지한다. 새 인터페이스/메서드를 추가하면 Stub 구현도 같이 추가해서, 특정 플랫폼 구현이 없어도 Core/UI 개발과 테스트가 막히지 않게 한다.
 
 ## 구현 상태
 
 * `App.Platform` — 아래 3개 인터페이스 정의 완료 (`src/App.Platform/*.cs`).
 * `App.Platform.Stub` — 3개 다 구현 완료 (`src/App.Platform.Stub/*.cs`). `StubIdleDetector`는 문서에 적힌 대로 테스트용 세터(`SetSimulatedIdleDuration`)를 제공.
-* `App.Platform.Windows` — 아직 미착수 (csproj만 존재, 실제 P/Invoke 구현 없음). 이 문서의 "Windows 구현" 열이 착수 시 그대로 작업 기준이 됨.
+* `App.Platform.Windows` — `ISecretStore`(`DpapiSecretStore`)만 구현 완료, `App.Windows`(실행 진입점)를 통해
+  `MainWindow`에 실제로 주입되어 OpenAI 어댑터 경로에서 동작 검증까지 끝남. `IWindowBehavior`/`IIdleDetector`의
+  Windows 구현은 아직 미착수(`IWindowBehavior`는 지금 `App.Platform.Stub`으로 임시 배선돼 있음).
 
 ## IWindowBehavior
 

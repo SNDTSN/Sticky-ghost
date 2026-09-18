@@ -188,7 +188,10 @@ CharacterPackLoadOutcome   // 호출부(App.UI)가 "기본 캐릭터로 전환�
 * 찌르기/쓰다듬기 판정이 발생하는 좌표는 여러 개 지정할 수 있으며 이를 통해 반응하는 부위를 세분화할 수 있다.
 * 단, 리포지토리 예제 캐릭터는 단일 좌표 구역으로 끝낸다. 리포지토리 예제 캐릭터는 최대한 적은 그림, 적은 세팅으로도 캐릭터를 만들 수 있다는 것을 보여주어 캐릭터 제작자의 심적 부담을 덜어 주는 것이 목적이다.
 * **판정 로직**: 포인터 다운 시점에 `touchRegions`를 순회해 눌린 좌표를 포함하는 첫 영역(먼저 선언된 영역 우선)을 고정하고, 뗄 때까지의 누적 이동 거리가 임계값(8px) 이상이면 Stroke, 미만이면 Poke로 판정. 이 임계값과 반응 표정 유지 시간(1.5초)은 팩 제작자가 조정할 필요가 없다고 보고 매니페스트가 아니라 코드 상수로 고정.
-* **(임시) 반응 표정**: `CharacterPreviewWindow`에 Poke→`annoyed`, Stroke→`love`로 하드코딩된 테스트용 매핑만 존재한다 — 대사는 아직 없음. `App.Mcp`의 `say`/`set_expression` 툴 자체는 이미 붙었지만(아래 참고), 이건 "Claude가 능동적으로 캐릭터에게 말을 거는" 별개의 입력 경로라 찌르기/쓰다듬기 반응과는 무관 — 터치 반응을 `CharacterReactionService`(LLM)로 교체하는 건 `App.UI` 배선 단계에서 할 일로 남아 있음(아래 "다음 단계" 참고).
+* **반응 표정+대사**: Poke/Stroke 판정이 발생하면 `CharacterReactionService`(OpenAI 어댑터 경로)를 호출해 실제 LLM이
+  생성한 대사+표정으로 반응한다 (`CharacterPreviewWindow.HandleTouchEvent`, 하드코딩된 annoyed/love 매핑은 제거됨).
+  `App.Mcp`의 `say`/`set_expression` 툴은 이것과 별개로 "Claude가 능동적으로 캐릭터에게 말을 거는" 입력 경로다 — 아래
+  참고. 상세는 "다음 단계"의 `App.UI` 배선 항목 참고.
 
 ### LLM 어댑터 공통 인터페이스 — `ICharacterLlmAdapter`
 
@@ -399,7 +402,8 @@ Avalonia 창 조작이라는 사실은 모른다.
 - [x] LLM 어댑터 공통 기반 설계 및 구현 — `ICharacterLlmAdapter`(OpenAI/Gemini 공통 인터페이스, `Domain/Repositories`),
   `CharacterReactionService`(TouchEvent/TodoEvent/사용자 채팅 입력을 공통 처리하는 단일 오케스트레이터, 실패 시
   고정 폴백 대사 반환), `DpapiSecretStore`(`App.Platform.Windows`, PORTING.md 스펙대로 DPAPI 암호화 저장) 코드화 완료.
-  실제 OpenAI/Gemini 어댑터 구현체 전, `App.UI` 배선(provider 선택 등)은 아직 없음.
+  이 시점 기준 실제 OpenAI/Gemini 어댑터 구현체 전, `App.UI` 배선(provider 선택 등)은 아직 없었음 — 이후 완료,
+  아래 `App.UI` 배선 항목 참고.
 - [x] OpenAI 어댑터 구현체 — `OpenAiChatCompletionAdapter`(Chat Completions + structured output, enum 제약).
   리포지토리 밖 스크래치패드 콘솔로 실제 API 호출까지 검증 완료(`gpt-4o-mini`, 쓰다듬기 자극 → `annoyed` 반응 확인).
   이 과정에서 `CharacterReactionService`의 역할 분리 프레이밍 위치를 오케스트레이터 → 어댑터로 재조정.
