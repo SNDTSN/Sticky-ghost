@@ -6,7 +6,7 @@
   "appearance": {
     "baseImage": "mainimage.png",
     "eyeClosedImage": "mainimage_eyeclosed.png",
-    "eyeClosedOffset": { "x": 74, "y": 112 },
+    "eyeClosedOffset": { "x": 73, "y": 110 },
     "blink": { "minIntervalMs": 2000, "maxIntervalMs": 6000, "durationMs": 150 },
     "expressions": [
       { "id": "angry", "image": "angry.png" },
