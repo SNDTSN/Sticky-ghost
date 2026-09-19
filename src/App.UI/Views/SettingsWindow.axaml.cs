@@ -1,37 +1,127 @@
+using System.Collections.Generic;
+using System.Linq;
+using App.Core.Domain.Services;
+using App.Core.Infrastructure.FileSystem;
+using App.Core.Infrastructure.Llm;
 using App.Platform;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 
 namespace App.UI.Views;
 
-/// <summary>OpenAI API 키를 입력/저장하는 최소 설정 창. 저장된 값은 보안상 다시 보여주지 않고 상태만 표시한다.</summary>
+/// <summary>LLM provider·모델·API 키·캐릭터 표시 설정을 입력하는 설정 창.
+/// 저장된 API 키 값은 보안상 다시 보여주지 않고 상태만 표시한다.</summary>
 public partial class SettingsWindow : Window
 {
     private ISecretStore? _secretStore;
-    private string? _apiKeySecretName;
+    private AppSettingsStore? _settingsStore;
+    private AppSettings _settings = new();
+    private List<CharacterPackScanEntry> _availablePacks = new();
+    private bool _isLoading;
 
     public SettingsWindow()
     {
         InitializeComponent();
     }
 
-    public SettingsWindow(ISecretStore secretStore, string apiKeySecretName) : this()
+    public SettingsWindow(ISecretStore secretStore, AppSettingsStore settingsStore, string characterPacksRootDir)
+        : this()
     {
         _secretStore = secretStore;
-        _apiKeySecretName = apiKeySecretName;
+        _settingsStore = settingsStore;
+        _settings = _settingsStore.Load();
+        _availablePacks = new CharacterPackScanner(new JsonCharacterPackLoader()).ScanAvailablePacks(characterPacksRootDir);
 
-        StatusText.Text = _secretStore.TryGetSecret(_apiKeySecretName) is not null
+        _isLoading = true;
+        ProviderComboBox.SelectedIndex = _settings.LlmProvider == LlmProviderCatalog.Gemini ? 1 : 0;
+        CharacterVisibleToggle.IsChecked = _settings.CharacterVisible;
+        SetScaleRadio(_settings.CharacterScale);
+        CharacterPackComboBox.ItemsSource = _availablePacks;
+        CharacterPackComboBox.SelectedItem =
+            _availablePacks.FirstOrDefault(p => p.Id == _settings.SelectedCharacterPackId)
+            ?? _availablePacks.FirstOrDefault();
+        _isLoading = false;
+
+        RefreshForSelectedProvider();
+        ApplyCharacterToggleState();
+    }
+
+    private void OnCharacterVisibleToggled(object? sender, RoutedEventArgs e)
+    {
+        if (_isLoading)
+            return;
+
+        ApplyCharacterToggleState();
+    }
+
+    private void ApplyCharacterToggleState()
+    {
+        CharacterScalePanel.IsEnabled = CharacterVisibleToggle.IsChecked ?? true;
+    }
+
+    private void SetScaleRadio(int scale)
+    {
+        Scale50RadioButton.IsChecked = scale == 50;
+        Scale150RadioButton.IsChecked = scale == 150;
+        Scale200RadioButton.IsChecked = scale == 200;
+        Scale100RadioButton.IsChecked = scale != 50 && scale != 150 && scale != 200;
+    }
+
+    private int GetSelectedScale()
+    {
+        if (Scale50RadioButton.IsChecked == true) return 50;
+        if (Scale150RadioButton.IsChecked == true) return 150;
+        if (Scale200RadioButton.IsChecked == true) return 200;
+        return 100;
+    }
+
+    // provider를 바꾸면 다른 provider의 키를 실수로 덮어쓰지 않도록 입력창을 비운다.
+    private void OnProviderChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_isLoading)
+            return;
+
+        ApiKeyTextBox.Text = string.Empty;
+        RefreshForSelectedProvider();
+    }
+
+    private void RefreshForSelectedProvider()
+    {
+        var provider = SelectedProvider();
+        ModelTextBox.Text = provider == LlmProviderCatalog.Gemini ? _settings.GeminiModel : _settings.OpenAiModel;
+        StatusText.Text = _secretStore!.TryGetSecret(LlmProviderCatalog.ApiKeySecretName(provider)) is not null
             ? "저장된 키 있음 (저장하면 덮어씀)"
             : "설정된 키 없음";
     }
 
+    private string SelectedProvider() =>
+        (ProviderComboBox.SelectedItem as ComboBoxItem)?.Tag as string ?? LlmProviderCatalog.OpenAi;
+
     private void OnSaveClick(object? sender, RoutedEventArgs e)
     {
-        var key = ApiKeyTextBox.Text;
-        if (string.IsNullOrWhiteSpace(key))
+        var provider = SelectedProvider();
+        var model = ModelTextBox.Text;
+        if (string.IsNullOrWhiteSpace(model))
             return;
 
-        _secretStore!.SaveSecret(_apiKeySecretName!, key);
+        _settings = provider == LlmProviderCatalog.Gemini
+            ? _settings with { LlmProvider = provider, GeminiModel = model }
+            : _settings with { LlmProvider = provider, OpenAiModel = model };
+
+        _settings = _settings with
+        {
+            CharacterVisible = CharacterVisibleToggle.IsChecked ?? true,
+            CharacterScale = GetSelectedScale(),
+            SelectedCharacterPackId = (CharacterPackComboBox.SelectedItem as CharacterPackScanEntry)?.Id,
+        };
+
+        _settingsStore!.Save(_settings);
+
+        // 비워두면 기존 키를 그대로 둔다 — 매번 재입력을 강요하지 않기 위해.
+        var key = ApiKeyTextBox.Text;
+        if (!string.IsNullOrWhiteSpace(key))
+            _secretStore!.SaveSecret(LlmProviderCatalog.ApiKeySecretName(provider), key);
+
         Close();
     }
 

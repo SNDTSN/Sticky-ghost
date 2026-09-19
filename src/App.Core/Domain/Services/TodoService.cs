@@ -107,6 +107,11 @@ public sealed class TodoService
         _eventBus.Publish(new TodoCompleted(completedEventSnapshot));
     }
 
+    public void DeleteTodo(Guid id)
+    {
+        _repository.Delete(id);
+    }
+
     public void CheckDueSoon()
     {
         var now = _clock.Now;

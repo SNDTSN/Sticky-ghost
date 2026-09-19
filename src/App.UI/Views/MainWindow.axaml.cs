@@ -24,10 +24,6 @@ public partial class MainWindow : Window
     // HttpClient는 소켓 고갈 방지를 위해 앱 수명 동안 하나만 재사용한다.
     private static readonly HttpClient HttpClient = new();
 
-    // TODO: 구조화 출력을 지원하는 모델로 임시 하드코딩 — 나중에 설정 UI에서 고를 수 있게 뺄 여지 있음.
-    private const string OpenAiModel = "gpt-4o-mini";
-    private const string ApiKeySecretName = "llm.openai.apikey";
-
     // TODO: 임시 배선. DI 컨테이너가 생기면 정식 조립 방식으로 교체.
     private readonly IMemoRepository _memoRepository;
     private readonly IWindowBehavior _windowBehavior = new StubWindowBehavior();
@@ -35,7 +31,8 @@ public partial class MainWindow : Window
     private readonly CharacterPackService _characterPackService;
     private readonly CharacterIpcServer _characterIpcServer;
     private readonly ISecretStore _secretStore;
-    private readonly CharacterReactionService _characterReactionService;
+    private readonly AppSettingsStore _appSettingsStore;
+    private CharacterReactionService _characterReactionService;
     private CharacterPreviewWindow? _activeCharacterWindow;
 
     // ISecretStore는 실행 진입점(App.Windows)이 조립해서 넘겨준다 — App.UI는 구체 구현(DPAPI 등)을 모른다.
@@ -63,14 +60,17 @@ public partial class MainWindow : Window
             new SystemClock(),
             TimeSpan.FromMinutes(30));
 
-        DataContext = new MainViewModel(todoRepository, categoryRepository, todoService);
+        var mainViewModel = new MainViewModel(todoRepository, categoryRepository, todoService)
+        {
+            ConfirmDeleteTodoRequested = () => ConfirmDialog.ShowAsync(this, "이 할 일을 삭제하시겠습니까?"),
+        };
+        DataContext = mainViewModel;
 
         var builtInPackPath = Path.Combine(AppContext.BaseDirectory, "CharacterPacks", "default");
         _characterPackService = new CharacterPackService(new JsonCharacterPackLoader(), builtInPackPath);
 
-        var llmAdapter = new OpenAiChatCompletionAdapter(HttpClient, OpenAiModel);
-        _characterReactionService = new CharacterReactionService(
-            llmAdapter, _secretStore, _characterPackService, ApiKeySecretName);
+        _appSettingsStore = new AppSettingsStore(Path.Combine(dataDir, "settings.json"));
+        _characterReactionService = BuildReactionService(_appSettingsStore.Load());
 
         // App.Mcp(Claude가 스폰하는 별도 프로세스)가 명명 파이프로 say/setExpression을 보내면 여기서 받는다.
         // 지금은 "캐릭터 미리보기" 창에만 반영 — 상시 캐릭터 오버레이 창은 별도 작업.
@@ -106,9 +106,25 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OnSettingsClick(object? sender, RoutedEventArgs e)
+    private async void OnSettingsClick(object? sender, RoutedEventArgs e)
     {
-        _ = new SettingsWindow(_secretStore, ApiKeySecretName).ShowDialog(this);
+        var packsRootDir = Path.Combine(AppContext.BaseDirectory, "CharacterPacks");
+        await new SettingsWindow(_secretStore, _appSettingsStore, packsRootDir).ShowDialog(this);
+
+        // provider/모델/키가 바뀌었을 수 있으니 재시작 없이 바로 반영되도록 다시 조립한다.
+        _characterReactionService = BuildReactionService(_appSettingsStore.Load());
+        // 설정창을 여는 동안 미리보기 창이 이미 떠 있었다면 그 창은 새로 조립된 서비스를 모르므로 직접 밀어준다.
+        _activeCharacterWindow?.UpdateReactionService(_characterReactionService);
+    }
+
+    private CharacterReactionService BuildReactionService(AppSettings settings)
+    {
+        ICharacterLlmAdapter llmAdapter = settings.LlmProvider == LlmProviderCatalog.Gemini
+            ? new GeminiChatCompletionAdapter(HttpClient, settings.GeminiModel)
+            : new OpenAiChatCompletionAdapter(HttpClient, settings.OpenAiModel);
+
+        return new CharacterReactionService(
+            llmAdapter, _secretStore, _characterPackService, LlmProviderCatalog.ApiKeySecretName(settings.LlmProvider));
     }
 
     private void OnNewMemoClick(object? sender, RoutedEventArgs e)

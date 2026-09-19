@@ -1,14 +1,17 @@
 using System;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading.Tasks;
 using App.Core.Domain.Entities;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 
 namespace App.UI.ViewModels;
 
 public partial class TodoItemViewModel : ViewModelBase
 {
     private readonly Action<Guid> _onComplete;
+    private readonly Func<Guid, Task> _onDelete;
 
     public Guid Id { get; }
     public string Title { get; }
@@ -26,9 +29,11 @@ public partial class TodoItemViewModel : ViewModelBase
     private bool _isCompleted;
 
     public TodoItemViewModel(
-        TodoItem item, Category? category, Action<Guid> onComplete, Action<Guid, Guid, bool> onToggleChecklistItem)
+        TodoItem item, Category? category, Action<Guid> onComplete, Action<Guid, Guid, bool> onToggleChecklistItem,
+        Func<Guid, Task> onDelete)
     {
         _onComplete = onComplete;
+        _onDelete = onDelete;
         Id = item.Id;
         Title = item.Title;
         DueDate = item.DueDate;
@@ -52,6 +57,9 @@ public partial class TodoItemViewModel : ViewModelBase
         if (value)
             _onComplete(Id);
     }
+
+    [RelayCommand]
+    private Task DeleteAsync() => _onDelete(Id);
 
     // 요일 표시 순서 (docs/todo-design.md: 월=1,화=2,수=4... 와 동일한 순서)
     private static readonly (DayOfWeek Day, string Label)[] DayOrder =

@@ -71,6 +71,12 @@ public partial class CharacterPreviewWindow : Window
         StartBlinkLoop();
     }
 
+    /// <summary>설정 변경(provider/모델/키)으로 재조립된 서비스를 이미 열려 있는 창에 반영한다.</summary>
+    public void UpdateReactionService(CharacterReactionService reactionService)
+    {
+        _reactionService = reactionService;
+    }
+
     // (B) 눈 깜빡임 — 깜빡일 때마다 다음 간격을 새로 뽑아 규칙적인 리듬이 생기지 않게 한다.
     private void StartBlinkLoop()
     {

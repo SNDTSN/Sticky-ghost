@@ -173,6 +173,9 @@ CompleteTodo(id):
     repository.Save(item)
     eventBus.Publish(TodoCompleted(item))
 
+DeleteTodo(id):
+    repository.Delete(id)   // ChecklistItem/CompletionLog는 FK ON DELETE CASCADE로 같이 삭제됨
+
 // 백그라운드 타이머 (예: 1분마다)
 CheckDueSoon():
     for item in repository.GetActiveWithDueDate():
@@ -190,6 +193,11 @@ CheckDueSoon():
   이 앱은 한국 사용자 전용이라 `Now`는 UTC가 아닌 로컬(KST) 시각을 반환한다 — 최초엔 `UtcNow`였다가, `DueDate`(로컬 시각)와 기준이 달라 `CheckDueSoon`의 마감 임박 판정이 9시간 밀리는 버그가 발견되어 로컬 시각으로 통일함. 상세 내용과 다중 시간대 지원 시 손봐야 할 지점 목록은 [docs/timezone-policy.md](./timezone-policy.md) 참고.
 * **`AddTodo`에서 불변식 검증**: `Recurrence != null`인데 `dueDate == null`이면 `ArgumentException`. `RecurrenceRule.ComputeNext`가 non-null `DateTime`만 받는다고 가정하는 전제(위 섹션 참고)를 여기서 실제로 지킴.
 * `CompleteTodo`가 존재하지 않는 `id`를 받으면 `InvalidOperationException`.
+* **`DeleteTodo`는 뒤늦게 추가됨 (2026-09-19)**: 애초 설계엔 없었는데, `ITodoRepository`에 `Delete`가 아예 없어서
+  반복 종료일이 없는 항목(=완료해도 계속 다음 회차로 롤오버되어 `GetIncomplete()`에서 절대 안 사라짐)을 지울
+  방법이 전혀 없다는 게 UI 작업 중 드러남. 일반 항목은 완료 시 목록에서 빠지는 것으로 "삭제된 것처럼" 보였을
+  뿐 실제로는 DB에 계속 남아있었던 셈 — 반복 없는 항목도 똑같이 삭제 수단이 없었음. `DeleteTodo`는 존재 여부
+  검사 없이(=없는 `id`를 넘겨도 조용히 무시) 바로 지우는 멱등 동작으로 둠, `CompleteTodo`처럼 예외를 던지지 않음.
 
 ## 다음 단계
 
@@ -206,4 +214,23 @@ CheckDueSoon():
   - [x] 반복 설정 UI (`RecurrenceTypeOption`, `DayOfWeekOptionViewModel`) — 유형/간격/요일(1주 간격 제한 반영)/종료일 입력, 목록에 "🔁 매일 (종료 ...)" 형태 배지 표시. 완료 체크 시 실제로 다음 회차로 굴러가는 것까지 실행 확인 완료.
   - [x] 카테고리 CRUD + 지정 UI (`ICategoryRepository`/`SqliteCategoryRepository` 신규 추가, `CategoryViewModel`).
     칩 형태로 이름/색상 즉시 수정(Update), 삭제 시 `TodoItem.CategoryId`의 `ON DELETE SET NULL` FK로 자동 미분류 처리됨 — 실행 확인 완료.
+- [x] To-do 리스트 3차 — UX 개편 (2026-09-19, `MainWindow.axaml`/`.axaml.cs`, `MainViewModel`, `TodoItemViewModel`).
+  1·2차에서 입력 폼 전체가 항상 펼쳐져 있어 시각적으로 피로하고 창도 가로로 넓어 "리스트" 느낌이 안 난다는
+  피드백으로 진행. 실행 확인 완료.
+  - 창을 세로로 긴 비율(`Width=400, Height=700`)로 변경. 목록(`ListBox`)이 남은 공간을 채움.
+  - "할 일 제목/마감일/중요·긴급/카테고리 지정/체크리스트/반복 설정" 입력 폼을 **"+ 할 일 추가" 버튼의
+    Flyout**으로 옮김 — 평소엔 안 보이다가 버튼 눌렀을 때만 뜸. 그 안에서 체크리스트·반복 설정은 각각
+    `Expander`로 기본 접어둠(자주 안 쓰는 항목이라 기본 노출 안 함).
+  - 카테고리 관리(추가/이름·색상 수정/삭제)도 같은 방식으로 별도 **"카테고리 관리" 버튼의 Flyout**으로 이동
+    (기존엔 화면에 항상 펼쳐진 칩 UI였음).
+  - `DatePicker` 2곳(마감일, 반복 종료일)과 반복 간격 `NumericUpDown`에 각각 무엇을 지정하는 컨트롤인지
+    라벨을 붙임 — 사용자가 처음 보고 "반복 종료일 위의 숫자가 뭘 의미하는지 바로 알기 어렵다"고 지적해서
+    보완. 비슷한 모호함이 남아있는 컨트롤을 발견하면 그때그때 라벨을 추가하는 식으로 진행함.
+  - 목록 항목(`ListBox.ItemTemplate`)을 가로 800px 기준 레이아웃(제목 고정폭 220px 등)에서 세로로 긴
+    400px 창에 맞게 재구성 — 제목은 `Grid`의 `*` 컬럼으로 바꿔 줄바꿈되게 하고, 중요/긴급/반복/카테고리
+    배지는 제목 줄 아래 별도 `WrapPanel`로 내려서 가로 오버플로 방지.
+  - **버그 발견 및 수정**: `ITodoRepository`에 애초에 `Delete`가 없어서 반복 종료일 없는 항목을 영원히
+    지울 수 없었음(위 "핵심 흐름" 섹션의 `DeleteTodo` 항목 참고). 목록 각 항목에 ✕ 삭제 버튼을 추가하고,
+    `MemoNoteViewModel.ConfirmDeleteRequested`와 같은 패턴(`Func<Task<bool>>` 콜백을 View가 채워줌)으로
+    삭제 전 확인창을 띄우게 함.
 - [ ] 캐릭터 엔진 설계 (`ITodoEventBus` 구독 측 포함)

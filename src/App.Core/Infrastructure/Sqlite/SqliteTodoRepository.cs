@@ -104,6 +104,17 @@ public sealed class SqliteTodoRepository : ITodoRepository
         transaction.Commit();
     }
 
+    // ChecklistItem/CompletionLog는 TodoItem을 FK ON DELETE CASCADE로 참조하므로(SqliteConnectionHelper가
+    // 연결마다 PRAGMA foreign_keys = ON을 걸어둠) 여기서 따로 지울 필요 없이 자동으로 같이 삭제된다.
+    public void Delete(Guid id)
+    {
+        using var connection = SqliteConnectionHelper.OpenConnection(_connectionString);
+        using var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM TodoItem WHERE Id = $Id;";
+        command.Parameters.AddWithValue("$Id", id.ToString());
+        command.ExecuteNonQuery();
+    }
+
     public TodoItem? Get(Guid id)
     {
         using var connection = SqliteConnectionHelper.OpenConnection(_connectionString);

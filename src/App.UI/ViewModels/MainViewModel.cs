@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading.Tasks;
 using App.Core.Domain.Entities;
 using App.Core.Domain.Repositories;
 using App.Core.Domain.Services;
@@ -17,6 +18,10 @@ public partial class MainViewModel : ViewModelBase
     private readonly TodoService _todoService;
 
     public ObservableCollection<TodoItemViewModel> Items { get; } = new();
+
+    /// <summary>실제 삭제 전 사용자 확인을 받는 콜백. View(MainWindow)가 생성 직후 채워준다 — ViewModel이
+    /// Window를 직접 참조하지 않기 위해 MemoNoteViewModel.ConfirmDeleteRequested와 같은 패턴을 사용.</summary>
+    public Func<Task<bool>>? ConfirmDeleteTodoRequested { get; set; }
 
     [ObservableProperty]
     private string _newTitle = string.Empty;
@@ -106,7 +111,7 @@ public partial class MainViewModel : ViewModelBase
             Category? category = item.CategoryId is { } categoryId && categoryLookup.TryGetValue(categoryId, out var found)
                 ? found
                 : null;
-            Items.Add(new TodoItemViewModel(item, category, CompleteTodo, ToggleChecklistItem));
+            Items.Add(new TodoItemViewModel(item, category, CompleteTodo, ToggleChecklistItem, DeleteTodoAsync));
         }
     }
 
@@ -215,6 +220,16 @@ public partial class MainViewModel : ViewModelBase
     private void CompleteTodo(Guid id)
     {
         _todoService.CompleteTodo(id);
+        LoadItems();
+    }
+
+    private async Task DeleteTodoAsync(Guid id)
+    {
+        var confirmed = ConfirmDeleteTodoRequested is not null && await ConfirmDeleteTodoRequested.Invoke();
+        if (!confirmed)
+            return;
+
+        _todoService.DeleteTodo(id);
         LoadItems();
     }
 

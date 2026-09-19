@@ -412,8 +412,22 @@ Avalonia 창 조작이라는 사실은 모른다.
   파이프 브릿지 동작까지 실제 검증 완료(텍스트 오버레이/`love` 표정 반영 확인, `leaveOpen` 버그 수정 포함).
   Claude Desktop/Code를 통한 실제 MCP 왕복(툴 디스커버리~호출)은 아직 검증 안 됨. 지금은
   `CharacterPreviewWindow`에만 반영 — 상시 캐릭터 오버레이 창과 제대로 된 말풍선 UI는 별도 작업.
-- [ ] Gemini 어댑터 구현체 (`ICharacterLlmAdapter` 구현 — REST 호출 + JSON 스키마 강제 응답 파싱). Gemini
-  API 구독이 없어 당장 보류 — 필요해지면 Google AI Studio 무료 티어 키(구독/카드 불필요)로 검증 예정.
+- [x] Gemini 어댑터 구현체(`GeminiChatCompletionAdapter`) — REST 호출 + `responseSchema`(Gemini 방언: 대문자
+  타입명, `nullable` 플래그) 강제 응답 파싱. 인증은 `x-goog-api-key` 헤더(쿼리스트링 `?key=`는 로그에 키가
+  남을 수 있어 배제). Google AI Studio 무료 티어 키로 실제 `say`/`set_expression` 왕복까지 검증 완료.
+  이 과정에서 발견한 것들:
+  - **키 형식 전환(2026-06~09)**: 신규 발급 키가 `AIzaSy...`(Standard) 대신 `AQ....`(구글 클라우드 서비스
+    계정에 묶인 Auth key)로 바뀜. Auth key는 인증 실패 시 403/400이 아니라 **401**을 돌려주는 사례가 있어
+    두 경우 모두 `LlmFailure.Unauthorized`로 분류하도록 처리(구 Standard key의 400+본문 메시지 케이스도 유지).
+  - **`gemini-2.5-flash` 단종 함정**: `models.list`에는 `generateContent` 지원 모델로 여전히 뜨는데, 실제
+    `generateContent` 호출은 404를 반환(모델별로 조용히 unsupported 처리되는 듯). 실측으로 확인된 대안:
+    `gemini-flash-latest`, `gemini-3.5-flash`, `gemini-3.1-flash-lite` 등은 정상 동작. 기본값은 특정 버전을
+    또 하드코딩했다가 같은 함정에 빠지지 않도록 Google이 관리하는 별칭 `gemini-flash-latest`로 채택
+    (`AppSettings.GeminiModel` 기본값).
+  - **`CharacterPreviewWindow` stale reference 버그**: 창 생성 시 `CharacterReactionService`를 필드로 캡처해서
+    고정해버려, 설정창에서 provider/모델/키를 바꿔도 이미 열려 있는 미리보기 창은 갱신을 못 받는 문제가 있었음
+    (Gemini로 테스트 실패 후 OpenAI로 되돌려도 창을 안 닫으면 여전히 죽은 어댑터를 참조). `MainWindow`가
+    설정창을 닫을 때 `_activeCharacterWindow?.UpdateReactionService(...)`로 직접 밀어주도록 수정.
 - [x] `App.UI` 배선 — `CharacterReactionService`(OpenAI 어댑터 경로)를 `MainWindow`에 조립, `CharacterPreviewWindow`의
   Poke/Stroke 하드코딩 매핑(annoyed/love)을 실제 `ReactToTouchAsync` 호출로 교체. API 키 입력용 `SettingsWindow` 신규
   추가(`ISecretStore.SaveSecret`, 저장된 값은 재노출 안 함). 이전 응답을 기다리는 동안 새 터치는 호출 자체를 무시해서
