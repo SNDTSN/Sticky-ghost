@@ -8,6 +8,9 @@ namespace App.Core.Infrastructure.FileSystem;
 /// <summary>캐릭터팩 manifest.json을 읽어 검증하는 로더. 폴백 정책은 다루지 않는다 — <see cref="Domain.Services.CharacterPackService"/> 참고.</summary>
 public sealed class JsonCharacterPackLoader : ICharacterPackLoader
 {
+    /// <summary>레이어 1픽셀이 상주시키는 메모리: 디코딩된 비트맵 4바이트(BGRA) + 입력 영역용 알파 마스크 1바이트.</summary>
+    public const int MemoryBytesPerPixel = 5;
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -53,11 +56,12 @@ public sealed class JsonCharacterPackLoader : ICharacterPackLoader
         }
 
         var packRoot = Path.GetFullPath(packFolderPath);
+        long estimatedMemoryBytes = 0;
 
         if (string.IsNullOrWhiteSpace(appearance.BaseImage))
             errors.Add("appearance.baseImage가 비어 있음");
         else
-            ValidateImagePath(packRoot, appearance.BaseImage, errors);
+            ValidateImage(packRoot, appearance.BaseImage, errors, ref estimatedMemoryBytes);
 
         // eyeClosedImage는 optional — 필드 자체가 없으면(null) 정상, 지정됐는데 빈 문자열이면 에러.
         if (appearance.EyeClosedImage is not null)
@@ -65,7 +69,7 @@ public sealed class JsonCharacterPackLoader : ICharacterPackLoader
             if (string.IsNullOrWhiteSpace(appearance.EyeClosedImage))
                 errors.Add("appearance.eyeClosedImage가 비어 있음");
             else
-                ValidateImagePath(packRoot, appearance.EyeClosedImage, errors);
+                ValidateImage(packRoot, appearance.EyeClosedImage, errors, ref estimatedMemoryBytes);
         }
 
         if (appearance.EyeClosedImage is not null)
@@ -91,7 +95,7 @@ public sealed class JsonCharacterPackLoader : ICharacterPackLoader
             if (string.IsNullOrWhiteSpace(expr.Image))
                 errors.Add($"expressions[{expr.Id}].image가 비어 있음");
             else
-                ValidateImagePath(packRoot, expr.Image, errors);
+                ValidateImage(packRoot, expr.Image, errors, ref estimatedMemoryBytes);
         }
 
         var touchRegionIds = new HashSet<string>();
@@ -166,9 +170,31 @@ public sealed class JsonCharacterPackLoader : ICharacterPackLoader
                 }).ToList(),
             },
             Personality = new Personality { SystemPrompt = manifest.Personality!.SystemPrompt! },
+            EstimatedMemoryBytes = estimatedMemoryBytes,
         };
 
         return CharacterPackLoadResult.Success(pack);
+    }
+
+    /// <summary>
+    /// 이미지 필드 하나를 검증한다: 경로/존재 확인(<see cref="ValidateImagePath"/>) 후 PNG 헤더를 읽어 PNG 전용을 강제하고
+    /// 예상 메모리를 누적한다. 크기 상한은 두지 않는다 — 큰 팩은 설정창에서 "용량 최적화 필요"로 알린다(docs/character-widget-design.md).
+    /// </summary>
+    private static void ValidateImage(string packRoot, string imageField, List<string> errors, ref long estimatedMemoryBytes)
+    {
+        var errorCountBefore = errors.Count;
+        ValidateImagePath(packRoot, imageField, errors);
+        if (errors.Count != errorCountBefore)
+            return;
+
+        var resolvedPath = Path.GetFullPath(Path.Combine(packRoot, imageField));
+        if (!PngHeader.TryReadSize(resolvedPath, out var width, out var height))
+        {
+            errors.Add($"PNG 형식이 아니거나 헤더가 손상됨: {imageField}");
+            return;
+        }
+
+        estimatedMemoryBytes += (long)width * height * MemoryBytesPerPixel;
     }
 
     /// <summary>팩 폴더를 벗어나는 경로(절대경로, "..\" 등)를 차단하고 파일 존재를 확인한다.</summary>
