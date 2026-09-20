@@ -14,6 +14,7 @@ using App.Platform;
 using App.Platform.Stub;
 using App.UI.Services;
 using App.UI.ViewModels;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 
@@ -34,6 +35,11 @@ public partial class MainWindow : Window
     private readonly AppSettingsStore _appSettingsStore;
     private CharacterReactionService _characterReactionService;
     private CharacterPreviewWindow? _activeCharacterWindow;
+    private PixelPoint? _lastMemoPosition;
+
+    private const int MemoCascadeOffset = 24;
+    private const int MemoCascadeBasePos = 100;
+    private const int DefaultMemoSize = 220;
 
     // ISecretStore는 실행 진입점(App.Windows)이 조립해서 넘겨준다 — App.UI는 구체 구현(DPAPI 등)을 모른다.
     public MainWindow(ISecretStore secretStore)
@@ -129,16 +135,37 @@ public partial class MainWindow : Window
 
     private void OnNewMemoClick(object? sender, RoutedEventArgs e)
     {
+        var position = NextMemoCascadePosition();
         var memo = new MemoNote
         {
             Color = "#FFF9C4",
-            PositionX = 100,
-            PositionY = 100,
-            Width = 220,
-            Height = 220,
+            PositionX = position.X,
+            PositionY = position.Y,
+            Width = DefaultMemoSize,
+            Height = DefaultMemoSize,
         };
         _memoRepository.Save(memo);
+        _lastMemoPosition = new PixelPoint((int)position.X, (int)position.Y);
         OpenMemoWindow(memo);
+    }
+
+    // 새 메모마다 조금씩 어긋나게 배치(캐스케이드)한다. 화면 작업 영역을 벗어나면 원점으로 되돌린다.
+    private PixelPoint NextMemoCascadePosition()
+    {
+        if (_lastMemoPosition is not { } last)
+            return new PixelPoint(MemoCascadeBasePos, MemoCascadeBasePos);
+
+        var next = new PixelPoint(last.X + MemoCascadeOffset, last.Y + MemoCascadeOffset);
+        var workArea = Screens.Primary?.WorkingArea;
+
+        if (workArea is null
+            || next.X + DefaultMemoSize > workArea.Value.Right
+            || next.Y + DefaultMemoSize > workArea.Value.Bottom)
+        {
+            return new PixelPoint(MemoCascadeBasePos, MemoCascadeBasePos);
+        }
+
+        return next;
     }
 
     private void OpenMemoWindow(MemoNote memo)

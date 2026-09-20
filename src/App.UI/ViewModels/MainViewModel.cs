@@ -161,6 +161,60 @@ public partial class MainViewModel : ViewModelBase
         CanEditRecurrenceDays = IsWeeklyRecurrenceSelected && NewRecurrenceInterval == 1;
     }
 
+    // 변경된 항목 하나만 갱신한다. LoadItems()처럼 GetIncomplete() 전체를 다시 쿼리하고
+    // 모든 TodoItemViewModel을 새로 만드는 대신, 영향받은 항목만 반영한다.
+    private int FindItemIndex(Guid id)
+    {
+        for (var i = 0; i < Items.Count; i++)
+        {
+            if (Items[i].Id == id)
+                return i;
+        }
+        return -1;
+    }
+
+    private void UpsertItem(TodoItem item)
+    {
+        var existingIndex = FindItemIndex(item.Id);
+
+        if (item.IsCompleted)
+        {
+            if (existingIndex >= 0)
+                Items.RemoveAt(existingIndex);
+            return;
+        }
+
+        Category? category = item.CategoryId is { } categoryId
+            ? _categoryRepository.GetAll().FirstOrDefault(c => c.Id == categoryId)
+            : null;
+        var vm = new TodoItemViewModel(item, category, CompleteTodo, ToggleChecklistItem, DeleteTodoAsync);
+
+        if (existingIndex >= 0)
+            Items.RemoveAt(existingIndex);
+
+        var insertAt = 0;
+        var key = item.DueDate ?? DateTime.MaxValue;
+        while (insertAt < Items.Count && (Items[insertAt].DueDate ?? DateTime.MaxValue) <= key)
+            insertAt++;
+        Items.Insert(insertAt, vm);
+    }
+
+    private void RemoveItem(Guid id)
+    {
+        var existingIndex = FindItemIndex(id);
+        if (existingIndex >= 0)
+            Items.RemoveAt(existingIndex);
+    }
+
+    private void RefreshItem(Guid id)
+    {
+        var item = _todoRepository.Get(id);
+        if (item is null)
+            RemoveItem(id);
+        else
+            UpsertItem(item);
+    }
+
     [RelayCommand]
     private void AddTodo()
     {
@@ -192,7 +246,7 @@ public partial class MainViewModel : ViewModelBase
 
         ErrorMessage = null;
 
-        _todoService.AddTodo(
+        var newItem = _todoService.AddTodo(
             NewTitle,
             categoryId: SelectedCategory?.Id,
             NewIsImportant,
@@ -214,13 +268,13 @@ public partial class MainViewModel : ViewModelBase
         foreach (var day in RecurrenceDayOptions)
             day.IsSelected = false;
 
-        LoadItems();
+        UpsertItem(newItem);
     }
 
     private void CompleteTodo(Guid id)
     {
         _todoService.CompleteTodo(id);
-        LoadItems();
+        RefreshItem(id);
     }
 
     private async Task DeleteTodoAsync(Guid id)
@@ -230,7 +284,7 @@ public partial class MainViewModel : ViewModelBase
             return;
 
         _todoService.DeleteTodo(id);
-        LoadItems();
+        RemoveItem(id);
     }
 
     private void ToggleChecklistItem(Guid todoId, Guid checklistItemId, bool isChecked)
@@ -242,6 +296,6 @@ public partial class MainViewModel : ViewModelBase
 
         checklistItem.IsChecked = isChecked;
         _todoRepository.Save(item);
-        LoadItems();
+        UpsertItem(item);
     }
 }

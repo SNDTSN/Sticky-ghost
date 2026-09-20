@@ -148,8 +148,7 @@ public sealed class SqliteTodoRepository : ITodoRepository
                 items.Add(ReadTodoItem(reader));
         }
 
-        foreach (var item in items)
-            item.ChecklistItems = LoadChecklistItems(connection, item.Id);
+        AttachChecklistItems(connection, items);
 
         return items;
     }
@@ -167,10 +166,61 @@ public sealed class SqliteTodoRepository : ITodoRepository
                 items.Add(ReadTodoItem(reader));
         }
 
-        foreach (var item in items)
-            item.ChecklistItems = LoadChecklistItems(connection, item.Id);
+        AttachChecklistItems(connection, items);
 
         return items;
+    }
+
+    // 항목마다 별도 쿼리(N+1)로 체크리스트를 불러오는 대신 TodoItemId IN (...) 한 번으로 모아서 가져온다.
+    private static void AttachChecklistItems(SqliteConnection connection, List<TodoItem> items)
+    {
+        if (items.Count == 0)
+            return;
+
+        var checklistsByTodoId = LoadChecklistItemsForMany(connection, items.Select(i => i.Id));
+        foreach (var item in items)
+            item.ChecklistItems = checklistsByTodoId.TryGetValue(item.Id, out var checklist) ? checklist : new List<ChecklistItem>();
+    }
+
+    private static Dictionary<Guid, List<ChecklistItem>> LoadChecklistItemsForMany(SqliteConnection connection, IEnumerable<Guid> todoItemIds)
+    {
+        var ids = todoItemIds.ToList();
+        var result = new Dictionary<Guid, List<ChecklistItem>>();
+        if (ids.Count == 0)
+            return result;
+
+        using var command = connection.CreateCommand();
+        var parameterNames = ids.Select((_, i) => $"$id{i}").ToList();
+        command.CommandText = $"""
+            SELECT Id, TodoItemId, Text, IsChecked, SortOrder
+            FROM ChecklistItem
+            WHERE TodoItemId IN ({string.Join(", ", parameterNames)})
+            ORDER BY TodoItemId, SortOrder;
+            """;
+        for (var i = 0; i < ids.Count; i++)
+            command.Parameters.AddWithValue(parameterNames[i], ids[i].ToString());
+
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            var todoItemId = Guid.Parse(reader.GetString(1));
+            if (!result.TryGetValue(todoItemId, out var checklist))
+            {
+                checklist = new List<ChecklistItem>();
+                result[todoItemId] = checklist;
+            }
+
+            checklist.Add(new ChecklistItem
+            {
+                Id = Guid.Parse(reader.GetString(0)),
+                TodoItemId = todoItemId,
+                Text = reader.GetString(2),
+                IsChecked = reader.GetBoolean(3),
+                SortOrder = reader.GetInt32(4),
+            });
+        }
+
+        return result;
     }
 
     private static TodoItem ReadTodoItem(SqliteDataReader reader)
