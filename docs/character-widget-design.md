@@ -83,7 +83,7 @@ TouchEvent
     kind: enum(Poke, Stroke)   // 찌르기/쓰다듬기 — 왼쪽 더블클릭 / 오른쪽 버튼 드래그로 App.UI가 판정
 ```
 
-`kind` 판정 로직은 매니페스트와 무관한 런타임 처리라 스키마엔 없음 — 매니페스트는 "어디에 영역이 있는지"만 선언하고, "지금 뭘 했는지"는 로더가 실시간으로 판단해서 personality 쪽에 이벤트로 넘긴다. 여러 영역이 겹칠 때의 우선순위는 아직 미정(예제 캐릭터가 단일 영역이라 당장 결정 불필요) — 나중에 실제로 여러 영역 쓰는 팩이 생기면 "먼저 선언된 영역 우선" 정도로 단순하게 시작 예정.
+`kind` 판정 로직은 매니페스트와 무관한 런타임 처리라 스키마엔 없음 — 매니페스트는 "어디에 영역이 있는지"만 선언하고, "지금 뭘 했는지"는 로더가 실시간으로 판단해서 personality 쪽에 이벤트로 넘긴다. 여러 영역이 겹칠 때는 "먼저 선언된 영역 우선"으로 확정했고 구현도 그렇게 되어 있다(아래 "찌르기/쓰다듬기"의 판정 로직 참고).
 
 **일부러 뺀 것**: 고정 대사 리스트(LLM이 그때그때 생성하는 게 design-draft.md 방침), 팩 버전/의존성 메타(배포 생태계 없는 지금은 과설계), 표정 전환 애니메이션(v1은 즉시 전환).
 
@@ -188,7 +188,7 @@ CharacterPackLoadOutcome   // 호출부(App.UI)가 "기본 캐릭터로 전환�
 * 찌르기/쓰다듬기 판정이 발생하는 좌표는 여러 개 지정할 수 있으며 이를 통해 반응하는 부위를 세분화할 수 있다.
 * 단, 리포지토리 예제 캐릭터는 단일 좌표 구역으로 끝낸다. 리포지토리 예제 캐릭터는 최대한 적은 그림, 적은 세팅으로도 캐릭터를 만들 수 있다는 것을 보여주어 캐릭터 제작자의 심적 부담을 덜어 주는 것이 목적이다.
 * **판정 로직**: 포인터 다운 시점에 `touchRegions`를 순회해 눌린 좌표를 포함하는 첫 영역(먼저 선언된 영역 우선)을 고정한다. 왼쪽 버튼은 항상 창 이동에 쓰이고(아래 "창 이동"), 그 두 번째 눌림(`ClickCount == 2`)이 드래그로 이어지지 않고 끝나면 Poke. 오른쪽 버튼을 누른 채 드래그해서 뗄 때까지의 누적 이동 거리가 임계값(8px) 이상이면 Stroke(미만이면 무동작 — 우클릭 컨텍스트 메뉴 자리로 비워 둠). 이 임계값과 반응 표정 유지 시간(1.5초)은 팩 제작자가 조정할 필요가 없다고 보고 매니페스트가 아니라 코드 상수로 고정.
-* **반응 표정+대사**: Poke/Stroke 판정이 발생하면 `CharacterReactionService`(OpenAI 어댑터 경로)를 호출해 실제 LLM이
+* **반응 표정+대사**: Poke/Stroke 판정이 발생하면 `CharacterReactionService`(OpenAI/Gemini 어댑터 공통 경로)를 호출해 실제 LLM이
   생성한 대사+표정으로 반응한다 (`CharacterWindow.HandleTouchEvent`, 하드코딩된 annoyed/love 매핑은 제거됨).
   `App.Mcp`의 `say`/`set_expression` 툴은 이것과 별개로 "Claude가 능동적으로 캐릭터에게 말을 거는" 입력 경로다 — 아래
   참고. 상세는 "다음 단계"의 `App.UI` 배선 항목 참고.
@@ -401,6 +401,11 @@ Avalonia 창 조작이라는 사실은 모른다.
 
 ## 다음 단계
 
+> 이 체크리스트는 당시의 작업 기록이라 이후 대체/삭제된 이름이 남아 있다(예: `CharacterPreviewWindow`와 MainWindow의 "캐릭터 미리보기" 임시 버튼 —
+> 지금은 `CharacterWindow`/`CharacterOverlayController`). 현재 구조는 아래 "캐릭터 오버레이 창 / 말풍선 / 창 위치" 섹션이 기준이다.
+> `CharacterPackService`가 돌려주는 `UsedFallback`은 현재 호출부가 쓰지 않는다(렌더링 실패 폴백은 `PackApplyResult`가 대신함 —
+> `docs/stability-hardening.md` "C2", `KNOWN_ISSUES.md` #9).
+
 - [x] 캐릭터 팩 매니페스트 스키마 확정 (appearance/personality 분리, 좌표계 규칙, touchRegions 리스트화)
 - [x] 대사+표정 출력 구조 — 어댑터별 방식(OpenAI/Gemini JSON vs `App.Mcp` 툴 분리) 결정
 - [x] 프롬프트 인젝션 최소 가이드라인 결정
@@ -420,8 +425,8 @@ Avalonia 창 조작이라는 사실은 모른다.
 - [x] `App.Mcp`에 `say`/`set_expression` 툴 추가 — 공식 `ModelContextProtocol` NuGet(stdio 서버) + 명명 파이프
   IPC(`App.Core/Infrastructure/Ipc`)로 `App.UI`(별도 프로세스)에 전달. `CharacterIpcClient` 직접 호출로
   파이프 브릿지 동작까지 실제 검증 완료(텍스트 오버레이/`love` 표정 반영 확인, `leaveOpen` 버그 수정 포함).
-  Claude Desktop/Code를 통한 실제 MCP 왕복(툴 디스커버리~호출)은 아직 검증 안 됨. 지금은
-  `CharacterPreviewWindow`에만 반영 — 상시 캐릭터 오버레이 창과 제대로 된 말풍선 UI는 별도 작업.
+  Claude Desktop/Code를 통한 실제 MCP 왕복은 이후 검증 완료(바로 아래 항목). 이 시점에는 `CharacterPreviewWindow`에만
+  반영했으나 이후 상시 오버레이 창/말풍선으로 대체됨(아래 "캐릭터 오버레이 창 / 말풍선 / 창 위치").
 - [x] Gemini 어댑터 구현체(`GeminiChatCompletionAdapter`) — REST 호출 + `responseSchema`(Gemini 방언: 대문자
   타입명, `nullable` 플래그) 강제 응답 파싱. 인증은 `x-goog-api-key` 헤더(쿼리스트링 `?key=`는 로그에 키가
   남을 수 있어 배제). Google AI Studio 무료 티어 키로 실제 `say`/`set_expression` 왕복까지 검증 완료.

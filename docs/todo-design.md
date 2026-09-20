@@ -122,7 +122,8 @@ CREATE TABLE TodoItem (
     RecurrenceDaysOfWeek INTEGER,       -- Weekly용 비트마스크. 순번(1,2,3..)이 아니라 요일마다 2의 거듭제곱을 배정해 OR로 합침: 월=1,화=2,수=4,목=8,금=16,토=32,일=64 (예: 월+수+금 = 1|4|16 = 21)
     RecurrenceEndDate    TEXT,          -- null이면 무기한
 
-    NotifiedDueSoon      INTEGER NOT NULL DEFAULT 0
+    NotifiedDueSoon      INTEGER NOT NULL DEFAULT 0,
+    CompletionCount      INTEGER NOT NULL DEFAULT 0    -- 누적 완료 횟수 (위 데이터 모델 참고). 기존 DB에는 SqliteSchemaInitializer.EnsureColumnExists가 보충
 );
 
 CREATE TABLE ChecklistItem (
@@ -186,6 +187,9 @@ CheckDueSoon():
             eventBus.Publish(TodoOverdue(item))
 ```
 
+> **알려진 설계 결함 (구현도 동일)**: 위 `CheckDueSoon`은 (1) 이미 마감이 지났는데 한 번도 알리지 않은 항목을 첫 분기에서 `TodoDueSoon(minutesLeft = 음수)`로 발행하고,
+> (2) `TodoOverdue`에 중복 방지가 없어 검사할 때마다 반복 발행한다. 지금은 스케줄러/구독자가 없어 드러나지 않는다 — `KNOWN_ISSUES.md` #15.
+
 **구현 완료** (`src/App.Core/Domain/Services/TodoService.cs`): 위 의사코드를 그대로 옮기되, 구현하면서 확정한 것 세 가지.
 
 * **`Recurrence.EndDate` 초과 처리**: `ComputeNext`로 계산한 다음 회차가 `EndDate`를 넘으면 더 굴리지 않고 `IsCompleted = true`인 채로 멈춤. `Recurrence` 필드 자체는 지우지 않아서 "예전엔 반복이었다"는 정보가 남음.
@@ -233,4 +237,7 @@ CheckDueSoon():
     지울 수 없었음(위 "핵심 흐름" 섹션의 `DeleteTodo` 항목 참고). 목록 각 항목에 ✕ 삭제 버튼을 추가하고,
     `MemoNoteViewModel.ConfirmDeleteRequested`와 같은 패턴(`Func<Task<bool>>` 콜백을 View가 채워줌)으로
     삭제 전 확인창을 띄우게 함.
-- [ ] 캐릭터 엔진 설계 (`ITodoEventBus` 구독 측 포함)
+- [ ] 캐릭터 엔진 설계 (`ITodoEventBus` 구독 측 포함) — **캐릭터 쪽은 대부분 완료**(팩 로더/렌더링/LLM 어댑터/오버레이/MCP는 `docs/character-widget-design.md` 참고).
+  남은 것은 to-do 연결뿐이다: `CheckDueSoon`을 주기 호출하는 스케줄러, `ITodoEventBus` 실제 구현(지금은 `NoOpTodoEventBus`), 구독 측에서
+  `CharacterReactionService.ReactToTodoAsync` 호출. 연결하기 전에 아래 "핵심 흐름"의 `CheckDueSoon` 결함(마감 초과 항목이 음수 minutesLeft의
+  `TodoDueSoon`으로 나가는 문제, `TodoOverdue` 중복 발행)부터 손봐야 한다 — `KNOWN_ISSUES.md` #15.
