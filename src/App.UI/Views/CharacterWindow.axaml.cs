@@ -23,6 +23,8 @@ namespace App.UI.Views;
 public partial class CharacterWindow : Window
 {
     private const double StrokeThresholdPx = 8.0;
+    // 이 거리(물리 px) 미만으로 움직이고 놓으면 이동이 아니라 클릭으로 본다(더블클릭 판정에서 필요).
+    private const int MoveThresholdPx = 4;
     private const int ReactionDurationMs = 1500;
 
     private readonly Random _random = new();
@@ -60,10 +62,18 @@ public partial class CharacterWindow : Window
     private Bitmap? _baseBitmap;
     private Bitmap? _eyeClosedBitmap;
 
-    private Point? _pressStart;
+    // 창 이동 — 왼쪽 버튼 드래그. 터치 영역 안팎 구분 없이 어디서나 옮길 수 있다(제목표시줄을 잡는 다른 창들과 같은 감각).
+    private bool _moving;
+    private bool _moved;
+    private PixelPoint _moveStartScreen;
+    private PixelPoint _moveStartPosition;
+    // 더블클릭의 두 번째 눌림에서 고정한 터치 영역. 그 눌림이 드래그로 이어지지 않고 끝났을 때만 찌르기로 확정한다.
+    private TouchRegion? _pendingPokeRegion;
+
+    // 쓰다듬기 — 터치 영역 안에서 오른쪽 버튼을 누른 채 드래그.
+    private TouchRegion? _strokeRegion;
     private Point _lastPoint;
     private double _dragDistance;
-    private TouchRegion? _activeRegion;
 
     public CharacterWindow()
     {
@@ -85,6 +95,7 @@ public partial class CharacterWindow : Window
         RootCanvas.PointerPressed += OnPointerPressed;
         RootCanvas.PointerMoved += OnPointerMoved;
         RootCanvas.PointerReleased += OnPointerReleased;
+        RootCanvas.PointerCaptureLost += OnPointerCaptureLost;
         // 창을 옮기거나 배율이 바뀌면 떠 있는 말풍선이 캐릭터를 따라가야 한다.
         PositionChanged += (_, _) => _bubble.MoveAnchor(CurrentRectPx());
         // 실제 창 크기가 바뀐 시점에도 입력 영역을 다시 맞춘다(Width/Height 설정과 OS 리사이즈 처리 시점이 다를 수 있다).
@@ -125,8 +136,7 @@ public partial class CharacterWindow : Window
 
         StopAnimationTimers();
         ReleaseBitmaps();
-        _pressStart = null;
-        _activeRegion = null;
+        ResetGestures();
 
         _pack = pack;
         _scalePercent = scalePercent;
@@ -311,52 +321,100 @@ public partial class CharacterWindow : Window
         _blinkCloseTimer.Start();
     }
 
-    // (C) 찌르기/쓰다듬기 판정 — 포인터 다운 지점의 touchRegion을 고정하고, 뗄 때까지의 누적 이동 거리로 Poke/Stroke를 가른다.
-    // 클릭/드래그가 이미 터치에 쓰이므로 창 이동은 "터치 영역 밖을 드래그" 또는 "Ctrl+드래그"로 구분한다.
+    // (C) 입력 규칙 — 다른 창들과 같은 감각으로 "왼쪽 드래그 = 창 이동"을 어디서나 쓰고, 터치 반응은 그와 겹치지 않는 입력에 둔다.
+    //   · 왼쪽 버튼 드래그(어디서나): 창 이동
+    //   · 터치 영역 안 왼쪽 더블클릭: 찌르기(Poke)
+    //   · 터치 영역 안 오른쪽 버튼 드래그: 쓰다듬기(Stroke) — 누적 이동 거리가 임계값 이상이면 발동
+    // 쓰다듬기를 "버튼을 누르지 않은 호버 왕복"으로 하면 다른 창으로 가려고 지나가기만 해도 LLM이 호출되어 비용이 나가므로 버튼을 누른 경우로 한정한다.
     private void OnPointerPressed(object? sender, PointerPressedEventArgs e)
     {
-        if (!e.GetCurrentPoint(RootCanvas).Properties.IsLeftButtonPressed)
+        // 이미 진행 중인 제스처가 있으면 다른 버튼의 동시 입력은 무시한다.
+        if (_moving || _strokeRegion is not null)
             return;
 
+        var kind = e.GetCurrentPoint(RootCanvas).Properties.PointerUpdateKind;
         // RootCanvas 로컬 좌표라 Viewbox 배율과 무관하게 항상 원본 PNG 100% 기준이다.
         var point = e.GetPosition(RootCanvas);
         var region = _pack!.Appearance.TouchRegions
             .FirstOrDefault(r => r.Rect.Contains(point.X, point.Y));
 
-        if (region is null || e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        if (kind == PointerUpdateKind.LeftButtonPressed)
         {
-            BeginMoveDrag(e);
-            return;
+            // BeginMoveDrag는 눌리자마자 OS 이동 루프에 들어가 더블클릭의 두 번째 눌림을 받을 수 없으므로 화면 좌표 기준으로 직접 옮긴다
+            // (창이 움직이면 창 로컬 좌표가 같이 흔들리므로 화면 좌표를 쓴다 — 말풍선 드래그와 같은 방식).
+            _moving = true;
+            _moved = false;
+            _moveStartScreen = this.PointToScreen(e.GetPosition(this));
+            _moveStartPosition = Position;
+            _pendingPokeRegion = e.ClickCount == 2 ? region : null;
+            e.Pointer.Capture(RootCanvas);
         }
-
-        _activeRegion = region;
-        _pressStart = point;
-        _lastPoint = point;
-        _dragDistance = 0;
-        e.Pointer.Capture(RootCanvas);
+        else if (kind == PointerUpdateKind.RightButtonPressed && region is not null)
+        {
+            _strokeRegion = region;
+            _lastPoint = point;
+            _dragDistance = 0;
+            e.Pointer.Capture(RootCanvas);
+        }
     }
 
     private void OnPointerMoved(object? sender, PointerEventArgs e)
     {
-        if (_pressStart is null)
-            return;
+        if (_moving)
+        {
+            var screenPoint = this.PointToScreen(e.GetPosition(this));
+            var dx = screenPoint.X - _moveStartScreen.X;
+            var dy = screenPoint.Y - _moveStartScreen.Y;
 
-        var point = e.GetPosition(RootCanvas);
-        _dragDistance += Distance(_lastPoint, point);
-        _lastPoint = point;
+            if (!_moved && Math.Abs(dx) < MoveThresholdPx && Math.Abs(dy) < MoveThresholdPx)
+                return;
+
+            _moved = true;
+            Position = new PixelPoint(_moveStartPosition.X + dx, _moveStartPosition.Y + dy);
+        }
+        else if (_strokeRegion is not null)
+        {
+            var point = e.GetPosition(RootCanvas);
+            _dragDistance += Distance(_lastPoint, point);
+            _lastPoint = point;
+        }
     }
 
     private void OnPointerReleased(object? sender, PointerReleasedEventArgs e)
     {
-        if (_pressStart is null || _activeRegion is null)
-            return;
+        if (e.InitialPressMouseButton == MouseButton.Left && _moving)
+        {
+            var moved = _moved;
+            var pokeRegion = _pendingPokeRegion;
+            ResetGestures();
+            e.Pointer.Capture(null);
 
-        var kind = _dragDistance >= StrokeThresholdPx ? TouchKind.Stroke : TouchKind.Poke;
-        HandleTouchEvent(new TouchEvent(_activeRegion.Id, kind));
+            // 두 번째 눌림이 드래그로 이어졌다면 더블클릭이 아니라 이동이다.
+            if (!moved && pokeRegion is not null)
+                HandleTouchEvent(new TouchEvent(pokeRegion.Id, TouchKind.Poke));
+        }
+        else if (e.InitialPressMouseButton == MouseButton.Right && _strokeRegion is { } strokeRegion)
+        {
+            var distance = _dragDistance;
+            ResetGestures();
+            e.Pointer.Capture(null);
 
-        _pressStart = null;
-        _activeRegion = null;
-        e.Pointer.Capture(null);
+            // 임계값 미만의 오른쪽 클릭은 아무 동작도 하지 않는다 — 나중에 컨텍스트 메뉴 자리로 비워 둔다.
+            if (distance >= StrokeThresholdPx)
+                HandleTouchEvent(new TouchEvent(strokeRegion.Id, TouchKind.Stroke));
+        }
+    }
+
+    // 다른 창이 포커스를 가져가는 등으로 Released 없이 capture만 풀리면 진행 중 상태가 남아 이후 입력이 전부 막힌다.
+    private void OnPointerCaptureLost(object? sender, PointerCaptureLostEventArgs e) => ResetGestures();
+
+    private void ResetGestures()
+    {
+        _moving = false;
+        _moved = false;
+        _pendingPokeRegion = null;
+        _strokeRegion = null;
+        _dragDistance = 0;
     }
 
     private static double Distance(Point a, Point b)
