@@ -11,7 +11,6 @@ using App.Core.Infrastructure.Ipc;
 using App.Core.Infrastructure.Llm;
 using App.Core.Infrastructure.Sqlite;
 using App.Platform;
-using App.Platform.Stub;
 using App.UI.Services;
 using App.UI.ViewModels;
 using Avalonia;
@@ -27,30 +26,37 @@ public partial class MainWindow : Window
 
     // TODO: 임시 배선. DI 컨테이너가 생기면 정식 조립 방식으로 교체.
     private readonly IMemoRepository _memoRepository;
-    private readonly IWindowBehavior _windowBehavior = new StubWindowBehavior();
+    private readonly IWindowBehavior _windowBehavior;
     private readonly List<MemoWindow> _memoWindows = new();
     private readonly CharacterPackService _characterPackService;
     private readonly CharacterIpcServer _characterIpcServer;
     private readonly ISecretStore _secretStore;
     private readonly AppSettingsStore _appSettingsStore;
-    private CharacterReactionService _characterReactionService;
-    private CharacterPreviewWindow? _activeCharacterWindow;
+    private readonly CharacterOverlayController _characterOverlay;
     private PixelPoint? _lastMemoPosition;
+    private readonly WindowStateStore _windowStateStore;
+    private readonly WindowPlacementTracker _placementTracker;
 
     private const int MemoCascadeOffset = 24;
     private const int MemoCascadeBasePos = 100;
     private const int DefaultMemoSize = 220;
 
-    // ISecretStore는 실행 진입점(App.Windows)이 조립해서 넘겨준다 — App.UI는 구체 구현(DPAPI 등)을 모른다.
-    public MainWindow(ISecretStore secretStore)
+    // ISecretStore/IWindowBehavior는 실행 진입점(App.Windows)이 조립해서 넘겨준다 — App.UI는 구체 구현(DPAPI, Win32 등)을 모른다.
+    public MainWindow(ISecretStore secretStore, IWindowBehavior windowBehavior)
     {
         InitializeComponent();
 
         _secretStore = secretStore;
+        _windowBehavior = windowBehavior;
 
         var dataDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "StickyGhost");
         Directory.CreateDirectory(dataDir);
+
+        // 마지막에 놓았던 위치/크기 복원. 처음 실행이거나 화면 밖으로 잘렸다면 우상단(본가 우카가카처럼 오른쪽)에서 시작한다.
+        _windowStateStore = new WindowStateStore(Path.Combine(dataDir, "window-state.json"));
+        _placementTracker = new WindowPlacementTracker(this, _windowStateStore, "main", trackSize: true);
+        _placementTracker.Restore(ScreenPlacement.TopRight);
 
         var connectionString = $"Data Source={Path.Combine(dataDir, "stickyghost.db")}";
         SqliteSchemaInitializer.EnsureCreated(connectionString);
@@ -72,42 +78,37 @@ public partial class MainWindow : Window
         };
         DataContext = mainViewModel;
 
-        var builtInPackPath = Path.Combine(AppContext.BaseDirectory, "CharacterPacks", "default");
+        var packsRootDir = Path.Combine(AppContext.BaseDirectory, "CharacterPacks");
+        var builtInPackPath = Path.Combine(packsRootDir, "default");
         _characterPackService = new CharacterPackService(new JsonCharacterPackLoader(), builtInPackPath);
 
         _appSettingsStore = new AppSettingsStore(Path.Combine(dataDir, "settings.json"));
-        _characterReactionService = BuildReactionService(_appSettingsStore.Load());
+        _characterOverlay = new CharacterOverlayController(
+            _characterPackService, packsRootDir, builtInPackPath, _windowStateStore, _windowBehavior,
+            BuildReactionService(_appSettingsStore.Load()));
 
         // App.Mcp(Claude가 스폰하는 별도 프로세스)가 명명 파이프로 say/setExpression을 보내면 여기서 받는다.
-        // 지금은 "캐릭터 미리보기" 창에만 반영 — 상시 캐릭터 오버레이 창은 별도 작업.
-        var ipcHandler = new CharacterIpcRequestHandler(_characterPackService, () => _activeCharacterWindow);
+        var ipcHandler = new CharacterIpcRequestHandler(_characterPackService, _characterOverlay);
         _characterIpcServer = new CharacterIpcServer(ipcHandler);
         _characterIpcServer.Start();
 
         foreach (var memo in _memoRepository.GetAll())
             OpenMemoWindow(memo);
 
+        // 캐릭터 창은 메인 창이 뜬 뒤에 띄운다 — 뜨는 순서가 바뀌면 캐릭터가 메인 창에 가려지거나 포커스를 가져간다.
+        Opened += (_, _) => ApplyCharacterSettings();
         Closing += OnClosing;
     }
 
-    // TODO: 로더 검증용 임시 버튼 핸들러 — 표정 렌더링 붙으면 정식 캐릭터 창 조립 로직으로 교체.
-    private void OnCharacterPreviewClick(object? sender, RoutedEventArgs e)
+    private void ApplyCharacterSettings()
     {
         try
         {
-            var builtInPackPath = Path.Combine(AppContext.BaseDirectory, "CharacterPacks", "default");
-            var outcome = _characterPackService.LoadPack(builtInPackPath);
-            var window = new CharacterPreviewWindow(outcome.Pack, _characterReactionService);
-            _activeCharacterWindow = window;
-            window.Closed += (_, _) =>
-            {
-                if (_activeCharacterWindow == window)
-                    _activeCharacterWindow = null;
-            };
-            window.Show();
+            _characterOverlay.Apply(_appSettingsStore.Load());
         }
         catch (InvalidOperationException ex)
         {
+            // 내장 캐릭터팩까지 깨진 배포 오류 — 앱 자체는 계속 쓸 수 있게 알림만 띄운다.
             _ = ConfirmDialog.ShowAsync(this, ex.Message);
         }
     }
@@ -118,9 +119,9 @@ public partial class MainWindow : Window
         await new SettingsWindow(_secretStore, _appSettingsStore, packsRootDir).ShowDialog(this);
 
         // provider/모델/키가 바뀌었을 수 있으니 재시작 없이 바로 반영되도록 다시 조립한다.
-        _characterReactionService = BuildReactionService(_appSettingsStore.Load());
-        // 설정창을 여는 동안 미리보기 창이 이미 떠 있었다면 그 창은 새로 조립된 서비스를 모르므로 직접 밀어준다.
-        _activeCharacterWindow?.UpdateReactionService(_characterReactionService);
+        _characterOverlay.SetReactionService(BuildReactionService(_appSettingsStore.Load()));
+        // 캐릭터 표시 여부/배율/팩 선택도 재시작 없이 바로 반영한다.
+        ApplyCharacterSettings();
     }
 
     private CharacterReactionService BuildReactionService(AppSettings settings)
@@ -149,23 +150,45 @@ public partial class MainWindow : Window
         OpenMemoWindow(memo);
     }
 
-    // 새 메모마다 조금씩 어긋나게 배치(캐스케이드)한다. 화면 작업 영역을 벗어나면 원점으로 되돌린다.
+    // 새 메모마다 조금씩 어긋나게 배치(캐스케이드)한다. 이번 실행의 첫 메모는 메인 창 옆에서 시작하고,
+    // 캐스케이드가 화면 작업 영역을 벗어나면 화면 좌측 원점에서 다시 시작한다.
     private PixelPoint NextMemoCascadePosition()
     {
+        var origin = new PixelPoint(MemoCascadeBasePos, MemoCascadeBasePos);
+        var screen = Screens.ScreenFromWindow(this) ?? Screens.Primary;
+        if (screen is null)
+            return origin;
+
+        var memoSizePx = (int)Math.Round(DefaultMemoSize * screen.Scaling);
+
         if (_lastMemoPosition is not { } last)
-            return new PixelPoint(MemoCascadeBasePos, MemoCascadeBasePos);
+            return NearMainWindow(screen.WorkingArea, screen.Scaling, memoSizePx) ?? origin;
 
         var next = new PixelPoint(last.X + MemoCascadeOffset, last.Y + MemoCascadeOffset);
-        var workArea = Screens.Primary?.WorkingArea;
-
-        if (workArea is null
-            || next.X + DefaultMemoSize > workArea.Value.Right
-            || next.Y + DefaultMemoSize > workArea.Value.Bottom)
-        {
-            return new PixelPoint(MemoCascadeBasePos, MemoCascadeBasePos);
-        }
+        if (next.X + memoSizePx > screen.WorkingArea.Right || next.Y + memoSizePx > screen.WorkingArea.Bottom)
+            return origin;
 
         return next;
+    }
+
+    // 메인 창 바로 옆(왼쪽 → 오른쪽 순)에 메모가 통째로 들어갈 자리가 있으면 그 위치. 메인 창이 우상단에 있는
+    // 기본 배치에서는 왼쪽에 붙는다. 양쪽 다 안 들어가면 null.
+    private PixelPoint? NearMainWindow(PixelRect workArea, double scaling, int memoSizePx)
+    {
+        var mainWidthPx = (int)Math.Round(Width * scaling);
+        PixelPoint[] candidates =
+        [
+            new(Position.X - memoSizePx - ScreenPlacement.Margin, Position.Y),
+            new(Position.X + mainWidthPx + ScreenPlacement.Margin, Position.Y),
+        ];
+
+        foreach (var candidate in candidates)
+        {
+            if (ScreenPlacement.Fits(new PixelRect(candidate.X, candidate.Y, memoSizePx, memoSizePx), workArea))
+                return candidate;
+        }
+
+        return null;
     }
 
     private void OpenMemoWindow(MemoNote memo)
@@ -182,6 +205,7 @@ public partial class MainWindow : Window
         foreach (var window in _memoWindows)
             window.FlushPendingSave();
 
+        _characterOverlay.FlushPlacement();
         _characterIpcServer.Stop();
     }
 }

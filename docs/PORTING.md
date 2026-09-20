@@ -16,9 +16,13 @@
 
 * `App.Platform` — 아래 3개 인터페이스 정의 완료 (`src/App.Platform/*.cs`).
 * `App.Platform.Stub` — 3개 다 구현 완료 (`src/App.Platform.Stub/*.cs`). `StubIdleDetector`는 문서에 적힌 대로 테스트용 세터(`SetSimulatedIdleDuration`)를 제공.
-* `App.Platform.Windows` — `ISecretStore`(`DpapiSecretStore`)만 구현 완료, `App.Windows`(실행 진입점)를 통해
-  `MainWindow`에 실제로 주입되어 OpenAI 어댑터 경로에서 동작 검증까지 끝남. `IWindowBehavior`/`IIdleDetector`의
-  Windows 구현은 아직 미착수(`IWindowBehavior`는 지금 `App.Platform.Stub`으로 임시 배선돼 있음).
+* `App.Platform.Windows` — `ISecretStore`(`DpapiSecretStore`)와 `IWindowBehavior`(`WindowsWindowBehavior`, 2026-09-20)를 구현했고
+  `App.Windows`(실행 진입점)가 `App.UI.App.SecretStoreFactory`/`WindowBehaviorFactory` 델리게이트로 `MainWindow`에 주입한다.
+  `WindowsWindowBehavior`는 지금 필요한 `SetInputShape`(캐릭터 오버레이의 투명 영역 클릭 통과)와 `SetAlwaysOnTop`(메모 📌)만
+  구현했고 `SetClickThrough`/`ExcludeFromTaskbar`는 no-op(필요해지면 구현). `IIdleDetector`의 Windows 구현은 아직 미착수.
+  `App.UI`는 더 이상 `App.Platform.Stub`을 참조하지 않는다.
+  캐릭터 오버레이 창/말풍선은 `Topmost`, `ShowInTaskbar`, `TransparencyLevelHint=Transparent`, `SystemDecorations=None` 같은
+  Avalonia 기본 속성으로 구성하고, Avalonia로 안 되는 "투명 픽셀 클릭 통과"만 `SetInputShape`로 처리한다.
 
 ## IWindowBehavior
 
@@ -27,7 +31,7 @@
 | 메서드 | 기대 동작 | Windows 구현 | Mac 후보 API |
 |---|---|---|---|
 | `SetClickThrough(handle, enabled)` | true면 창이 마우스 이벤트를 받지 않고 아래 창/바탕화면으로 흘려보냄 (캐릭터가 화면을 가리지만 클릭은 안 막아야 할 때) | `SetWindowLong(GWL_EXSTYLE, WS_EX_TRANSPARENT \| WS_EX_LAYERED)` (user32.dll) | `NSWindow.ignoresMouseEvents = true` |
-| `SetPerPixelTransparency(handle, enabled)` | 사각형이 아닌 캐릭터 스프라이트(PNG alpha) 모양 그대로 창 외곽선을 렌더링 | `WS_EX_LAYERED` + `UpdateLayeredWindow` | `NSWindow.isOpaque = false` + `backgroundColor = .clear`, 레이어 기반 컨텐츠 뷰 |
+| `SetInputShape(handle, rects)` | `rects`(창 좌상단 기준 물리 픽셀, 서로 겹치지 않는 `MaskRect` 목록) 안쪽만 마우스 입력을 받고 렌더링되며, 밖은 아래 창으로 통과. 투명 PNG 캐릭터의 투명한 부분이 뒤에 있는 창 클릭을 막지 않게 하는 용도. `null`이면 제한 해제 | `ExtCreateRegion`(RGNDATA) + `SetWindowRgn` (gdi32/user32). 성공 시 리전 소유권이 OS로 넘어가므로 `DeleteObject` 금지, 실패 시에만 해제. 빈 목록은 창이 보이지도 눌리지도 않게 되므로 무시 | 알파 0 픽셀은 기본적으로 클릭이 통과되므로 no-op으로 시작해도 될 가능성이 큼(이식 시 실측). 필요하면 `NSWindow` 컨텐츠 뷰의 `hitTest` 재정의 |
 | `SetAlwaysOnTop(handle, enabled)` | 다른 일반 창들보다 항상 위에 표시 | `SetWindowPos(HWND_TOPMOST, ...)` | `NSWindow.level = .floating` |
 | `ExcludeFromTaskbar(handle, enabled)` | 작업표시줄/Dock에 아이콘이 뜨지 않게 함 | `WS_EX_TOOLWINDOW` 스타일 추가 | `NSWindow.styleMask`에서 창을 `NSPanel` + `.nonactivatingPanel`로 구성하거나 `NSApp.setActivationPolicy(.accessory)` |
 

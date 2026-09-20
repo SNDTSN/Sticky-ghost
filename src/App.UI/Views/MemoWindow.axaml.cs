@@ -3,6 +3,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Threading;
+using App.UI.Services;
 using App.UI.ViewModels;
 
 namespace App.UI.Views;
@@ -24,9 +25,12 @@ public partial class MemoWindow : Window
     {
         _viewModel = viewModel;
         DataContext = viewModel;
-        Position = new PixelPoint((int)viewModel.PositionX, (int)viewModel.PositionY);
         Width = viewModel.Width;
         Height = viewModel.Height;
+        // 모니터가 빠지거나 해상도가 바뀌어 헤더가 화면 밖으로 잘린 메모는 잡을 수 없으므로 가장 가까운 화면 안으로 옮긴다.
+        // 보정된 위치는 PositionChanged → 디바운스 저장 경로로 DB에도 반영된다.
+        Position = ScreenPlacement.RestoreOrClamp(
+            Screens, new PixelPoint((int)viewModel.PositionX, (int)viewModel.PositionY), Width, Height);
 
         viewModel.CloseRequested += Close;
         viewModel.ConfirmDeleteRequested = () => ConfirmDialog.ShowAsync(this, "이 메모를 삭제하시겠습니까?");

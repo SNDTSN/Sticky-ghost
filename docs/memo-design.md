@@ -97,3 +97,9 @@ CREATE TABLE MemoNote (
   `SystemDecorations="None"`으로 바꿔서 닫기 경로를 커스텀 ✕ 버튼 하나로 통일. 대신 OS가 대신 해주던 이동/리사이즈가 없어지므로
   헤더 영역 `PointerPressed` → `BeginMoveDrag`(이동), 우측 하단 리사이즈 그립 `PointerPressed` → `BeginResizeDrag(WindowEdge.SouthEast, ...)`(리사이즈)를
   `MemoWindow.axaml.cs`에 직접 구현 (`docs/design-draft.md`의 "메모리 누수 주의" 원칙과는 무관, 순수 UX 회귀 방지).
+- [x] 창 위치 복원 보강 (2026-09-20) — 저장된 위치가 화면 밖으로 잘렸을 때(모니터 분리/해상도 변경) 헤더를 잡을 수 없게 되는 문제 대응
+  - `ScreenPlacement.RestoreOrClamp`: 상단 모서리가 작업 영역 안에 있고 가로로 64px 이상 겹치면 그대로 복원, 아니면 가장 가까운
+    작업 영역 안으로 clamp(크기 유지). "조금이라도 겹치면 통과"로 하면 헤더가 화면 위로 잘린 채 복구 불가능해져서 상단 모서리 기준으로 판정.
+    보정된 위치는 `PositionChanged` → 기존 디바운스 저장 경로로 DB에도 반영됨. 메인/캐릭터 창과 같은 검증 규칙을 공유.
+  - 새 메모 시작 위치: 이번 실행의 첫 메모는 메인 창 바로 옆(왼쪽 → 오른쪽 순으로 통째로 들어갈 자리가 있는 쪽)에서 시작하고,
+    이후는 기존대로 +24px 캐스케이드. 캐스케이드가 작업 영역을 벗어나면 화면 좌측 원점 (100,100)에서 다시 시작(기존 동작 유지).

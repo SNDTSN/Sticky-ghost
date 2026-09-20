@@ -1,0 +1,37 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        x:Class="App.UI.Views.SpeechBubbleWindow"
+        Title="말풍선"
+        SystemDecorations="None"
+        Background="Transparent"
+        TransparencyLevelHint="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ShowActivated="False"
+        CanResize="False"
+        SizeToContent="WidthAndHeight">
+
+    <!-- 캐릭터 창과 별개의 투명 창 — 같은 창에 넣으면 말풍선이 없을 때도 보이지 않는 사각형이 클릭을 막는다.
+         바깥 Margin은 그림자가 잘리지 않게 두는 여유. 꼬리는 캐릭터 쪽을 향해야 하므로 좌/우 두 개를 두고
+         배치 결과(SpeechBubbleWindow.Place)에 따라 하나만 보이게 한다. -->
+    <Grid Margin="8" ColumnDefinitions="Auto,Auto,Auto">
+        <Polygon x:Name="TailLeft" Grid.Column="0" Points="10,0 0,10 10,20" Fill="White"
+                 VerticalAlignment="Top" Margin="0,18,-1,0" IsVisible="False" />
+
+        <Border Grid.Column="1" Background="White" BorderBrush="#22000000" BorderThickness="1"
+                CornerRadius="10" Padding="12,8" BoxShadow="0 2 8 0 #40000000"
+                PointerPressed="OnBubblePointerPressed"
+                PointerMoved="OnBubblePointerMoved"
+                PointerReleased="OnBubblePointerReleased"
+                PointerCaptureLost="OnBubblePointerCaptureLost"
+                Cursor="SizeAll">
+            <TextBlock x:Name="LineText" MaxWidth="260" TextWrapping="Wrap" FontSize="13" Foreground="#222222" />
+        </Border>
+
+        <Polygon x:Name="TailRight" Grid.Column="2" Points="0,0 10,10 0,20" Fill="White"
+                 VerticalAlignment="Top" Margin="-1,18,0,0" />
+    </Grid>
+</Window>

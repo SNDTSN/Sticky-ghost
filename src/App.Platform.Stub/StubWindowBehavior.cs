@@ -9,7 +9,7 @@ public sealed class StubWindowBehavior : IWindowBehavior
 {
     public void SetClickThrough(IntPtr handle, bool enabled) { }
 
-    public void SetPerPixelTransparency(IntPtr handle, bool enabled) { }
+    public void SetInputShape(IntPtr handle, IReadOnlyList<MaskRect>? rects) { }
 
     public void SetAlwaysOnTop(IntPtr handle, bool enabled) { }
 

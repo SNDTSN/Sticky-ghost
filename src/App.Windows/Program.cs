@@ -16,6 +16,7 @@ sealed class Program
     {
         // App.UI는 플랫폼 구현을 모르므로, 실행 진입점인 여기서 조립해 델리게이트로 넘겨준다.
         App.UI.App.SecretStoreFactory = CreateSecretStore;
+        App.UI.App.WindowBehaviorFactory = () => new WindowsWindowBehavior();
 
         BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
     }

@@ -86,21 +86,20 @@ GC 부담이 체감될 수준이 아니다.
 **개선 방향**: 나중에 다국어 지원이 들어가면 이 템플릿들을 리소스 파일 등으로 분리해야 한다. 지금은
 설계 범위 밖.
 
-## 6. `App.UI` — `App.Platform.Stub` 구체 구현을 직접 참조 (임시 배선)
+## 6. ~~`App.UI` — `App.Platform.Stub` 구체 구현을 직접 참조 (임시 배선)~~ — 해결됨 (2026-09-20)
 
-**어디**: `App.UI/App.UI.csproj`의 `App.Platform.Stub.csproj` `ProjectReference`,
-`App.UI/Views/MainWindow.axaml.cs:29`의 `private readonly IWindowBehavior _windowBehavior = new StubWindowBehavior();`.
+`IWindowBehavior`를 `MainWindow` 생성자 주입으로 바꾸고 `App.WindowBehaviorFactory`(실행 진입점 `App.Windows/Program.cs`가
+`WindowsWindowBehavior`를 조립)를 추가했다. `App.UI.csproj`의 `App.Platform.Stub` 참조와 `new StubWindowBehavior()`는 제거.
+(Stub 프로젝트 자체는 Mac 이식/테스트용으로 유지 — 남은 임시물은 DI 컨테이너 없이 `MainWindow`가 손으로 조립하는 부분.)
 
-**증상**: `App.UI.csproj` 상단 주석은 "App.UI 자체는 플랫폼 구현(App.Platform.Windows 등)을 참조하지
-않아야 Mac 이식 시 그대로 재사용 가능"이라고 원칙을 명시하는데, `MainWindow`가 `App.Platform.Stub`의
-`StubWindowBehavior`를 직접 `new`해서 쓰고 있어 그 원칙과 문자 그대로는 어긋난다. `App.Platform.Stub`
-자체는 Windows 전용 구현은 아니라서(테스트/자리표시용 stub) 즉각적인 이식성 문제는 아니지만, DI 없이
-구체 타입을 직접 생성하는 배선이 `MainWindow`에 하드코딩돼 있다.
+## 7. ~~메모 위젯 📌(항상 위 표시) 버튼이 실제로는 동작하지 않음~~ — 코드상 해결됨 (2026-09-20, 실행 확인 대기)
 
-**왜 지금은 안 심각한가**: 코드에 이미 `// TODO: 임시 배선. DI 컨테이너가 생기면 정식 조립 방식으로 교체`
-주석이 양쪽(csproj, MainWindow.axaml.cs)에 달려 있어 인지된 상태이고, 실제 `IWindowBehavior` 동작이
-필요해지기 전까지는 문제를 일으키지 않는다.
+원인은 `IWindowBehavior`가 no-op Stub이었던 것. `WindowsWindowBehavior.SetAlwaysOnTop`(`SetWindowPos(HWND_TOPMOST)`)을 구현해
+주입했다. **실제로 📌 토글 시 다른 창 위에 고정되는지는 사용자 확인 필요.**
 
-**개선 방향**: DI 컨테이너(또는 최소한 조립 전용 Composition Root)를 도입해서 `App.Windows`(또는
-`App.Platform.Windows`) 쪽에서 실제 구현을 주입하도록 바꾸고, `App.UI`가 `App.Platform.Stub`을 직접
-참조하지 않게 정리한다.
+## 8. 캐릭터 오버레이 창 — 투명 영역이 뒤에 있는 창 클릭을 막음 → `SetInputShape`로 대응 (실행 확인 대기)
+
+v1의 사각형 히트박스는 실제로 불편했다(설정 버튼이 캐릭터의 투명 부분에 가려져 눌리지 않음). `IWindowBehavior.SetInputShape`
+(`SetWindowRgn`)로 창 모양을 불투명 픽셀(알파 16 이상)의 합집합으로 제한하도록 구현했다. 표정 이미지는 base의 투명 영역에 걸쳐
+있을 수 있어서 떠 있는 동안만 포함한다. **Avalonia 투명 창에서 `SetWindowRgn`이 실제로 렌더링/입력을 자르는지는 실측 필요** —
+안 먹는다면 폴백은 `GetCursorPos` 폴링으로 `WS_EX_TRANSPARENT`를 토글하는 방식.

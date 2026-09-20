@@ -189,7 +189,7 @@ CharacterPackLoadOutcome   // 호출부(App.UI)가 "기본 캐릭터로 전환�
 * 단, 리포지토리 예제 캐릭터는 단일 좌표 구역으로 끝낸다. 리포지토리 예제 캐릭터는 최대한 적은 그림, 적은 세팅으로도 캐릭터를 만들 수 있다는 것을 보여주어 캐릭터 제작자의 심적 부담을 덜어 주는 것이 목적이다.
 * **판정 로직**: 포인터 다운 시점에 `touchRegions`를 순회해 눌린 좌표를 포함하는 첫 영역(먼저 선언된 영역 우선)을 고정하고, 뗄 때까지의 누적 이동 거리가 임계값(8px) 이상이면 Stroke, 미만이면 Poke로 판정. 이 임계값과 반응 표정 유지 시간(1.5초)은 팩 제작자가 조정할 필요가 없다고 보고 매니페스트가 아니라 코드 상수로 고정.
 * **반응 표정+대사**: Poke/Stroke 판정이 발생하면 `CharacterReactionService`(OpenAI 어댑터 경로)를 호출해 실제 LLM이
-  생성한 대사+표정으로 반응한다 (`CharacterPreviewWindow.HandleTouchEvent`, 하드코딩된 annoyed/love 매핑은 제거됨).
+  생성한 대사+표정으로 반응한다 (`CharacterWindow.HandleTouchEvent`, 하드코딩된 annoyed/love 매핑은 제거됨).
   `App.Mcp`의 `say`/`set_expression` 툴은 이것과 별개로 "Claude가 능동적으로 캐릭터에게 말을 거는" 입력 경로다 — 아래
   참고. 상세는 "다음 단계"의 `App.UI` 배선 항목 참고.
 
@@ -359,10 +359,11 @@ Avalonia 창 조작이라는 사실은 모른다.
 (`[McpServerTool]`)이 호출될 때마다 새로 연결해서 요청을 보낸다. `App.UI`가 안 켜져 있으면 3초 타임아웃 후
 "캐릭터 위젯이 실행 중이지 않습니다" 응답.
 
-**핸들러** (`CharacterIpcRequestHandler`, `App.UI`) — 지금은 `CharacterPreviewWindow`(테스트용 미리보기
-창)에만 반영. `say`는 텍스트 오버레이(`LineLayer`, 3초), `setExpression`은 기존 표정 레이어 재사용, 둘 다
+**핸들러** (`CharacterIpcRequestHandler`, `App.UI`) — `CharacterOverlayController`를 거쳐 상시 캐릭터 오버레이
+창(`CharacterWindow`)에 반영. `say`는 말풍선(`SpeechBubbleWindow`), `setExpression`은 표정 레이어, 둘 다
 `Dispatcher.UIThread.Post`로 UI 스레드에 넘김(파이프 콜백은 UI 스레드가 아님). `expressionId`가 현재 팩에
-없는 값이면 실패 응답. **제대로 된 상시 캐릭터 오버레이 창과 말풍선 UI는 아직 없음** — 별도 작업.
+없는 값이면 실패 응답. 캐릭터 표시가 꺼져 있으면(설정) "캐릭터가 표시되고 있지 않음" 실패 응답.
+(2026-09-20 이전에는 테스트용 미리보기 창에만 반영했음 — 아래 "캐릭터 오버레이 창/말풍선/창 위치" 참고.)
 
 **버그 수정 이력**: `StreamReader`/`StreamWriter`가 같은 파이프 스트림을 감쌀 때 기본값 `leaveOpen: false`라
 먼저 `Dispose`되는 쪽이 파이프를 닫아버리고, 나머지 하나가 닫힌 파이프에 `Flush`를 시도하다
@@ -442,3 +443,56 @@ Avalonia 창 조작이라는 사실은 모른다.
   `sticky-ghost-character` 서버로 등록(`App.Mcp.exe` Debug 빌드 경로 직접 지정). Claude Code에서 승인 후 `say`/
   `set_expression` 툴 디스커버리 확인, `say` 실제 호출까지 성공(캐릭터 미리보기 창에 말풍선 반영 확인 완료).
   Claude Desktop 쪽은 별도 확인 안 함(Claude Code 경로로 전체 왕복이 이미 검증됨).
+## 캐릭터 오버레이 창 / 말풍선 / 창 위치 (2026-09-20)
+
+`CharacterPreviewWindow`와 MainWindow의 "캐릭터 미리보기" 임시 버튼을 없애고 정식 구조로 교체.
+빌드 컴파일 확인까지 완료, **실행 상태에서의 투명 창 동작(히트박스/말풍선 배치)은 사용자 실측 확인 대기 중**.
+
+### 구조
+* `CharacterWindow` — 타이틀바/테두리 없는 투명 오버레이 창(`SystemDecorations=None`, `TransparencyLevelHint=Transparent`,
+  `Topmost`, `ShowInTaskbar=false`, `ShowActivated=false`). 창 속성은 Avalonia 기본 속성으로 구성하고, Avalonia로 안 되는
+  "투명 픽셀 클릭 통과"만 `IWindowBehavior.SetInputShape`로 처리한다(아래 "동작 규칙" 참고). 표시 배율은 `Viewbox`가 적용하고 안쪽
+  `Canvas`는 항상 원본 100% 좌표계라 `offset`/`touchRegion` 좌표가 배율과 무관하게 그대로 맞는다.
+* `SpeechBubbleWindow` — 캐릭터 창과 **별개의** 투명 창(본가 우카가카의 balloon과 같은 구조). 같은 창에 넣으면 말풍선이 없을 때도
+  보이지 않는 사각형이 클릭을 막기 때문. 한 번 만들어 두고 Show/Hide로 재사용한다.
+* `CharacterOverlayController` — 캐릭터 창의 생명주기(표시/숨김, 팩 교체, 배율)를 `AppSettings`에 맞춰 관리. MainWindow는
+  `Apply(settings)`만 호출(기동 시 `Opened`, 설정창 닫힌 뒤). 창은 하나만 유지하고 팩/배율이 바뀌어도 새로 만들지 않고
+  `CharacterWindow.SetPack`으로 내용만 교체한다(비트맵 전부 Dispose 후 재로드). 이로써 `CharacterVisible`/`CharacterScale`/
+  `SelectedCharacterPackId` 설정이 처음으로 실제 창에 반영된다.
+
+### 동작 규칙
+* **창 이동**: 클릭/드래그가 찌르기/쓰다듬기에 쓰이므로, "터치 영역 밖을 드래그" 또는 "어디서든 Ctrl+좌클릭 드래그"로 이동
+  (`BeginMoveDrag`). 우클릭은 나중에 컨텍스트 메뉴용으로 비워둠. 예제 팩은 터치 영역이 이미지 전체(304x324)라 실제로는 Ctrl+드래그만
+  쓰게 됨 → 예제 팩 터치 영역은 나중에 손볼 것.
+* **배율 변경 고정점**: 하단 중앙(발이 제자리, 위로만 커지고 줄어듦). 화면 밖으로 잘리면 clamp.
+* **말풍선 배치**: 캐릭터가 화면 오른쪽 절반이면 왼쪽에, 왼쪽 절반이면 오른쪽에 띄우고 공간이 모자라면 반대쪽으로 뒤집는다.
+  초기 높이는 캐릭터 상단에서 45% 내려온 지점(예제 팩 기준 꼬리 끝이 대략 입 높이 — 처음엔 10%라 머리 바로 옆에 붙어 거슬렸음),
+  꼬리는 캐릭터 쪽을 향함. 캐릭터를 드래그하면 떠 있는 말풍선이 따라감. 표시 시간 `clamp(2000ms + 120ms × 글자수, 3s, 12s)`,
+  200자 초과는 `…`로 자름, 재호출 시 텍스트 교체 + 타이머 재시작. 스타일은 v1 고정(흰 배경/둥근 모서리/최대 폭 260) —
+  **팩별 말풍선 스킨 커스터마이즈는 다음 작업**.
+* **말풍선 위치 조정(드래그)**: 말풍선은 캐릭터와 별개로 사용자가 글씨를 읽기 편한 위치에 둘 수 있어야 한다는 결정. 말풍선을 드래그하면
+  자동 배치 위치 기준의 조정값(`Offset`)이 저장되고, 이후 말풍선은 캐릭터를 옮기거나 좌우로 뒤집혀도 같은 관계를 유지한다
+  (dx는 "캐릭터에서 멀어지는 방향이 +"). 클릭(4px 미만 이동)은 닫기, 드래그 중에는 자동으로 닫히지 않고 놓으면 표시 타이머 재시작.
+  `BeginMoveDrag`는 OS 이동 루프라 놓았을 때의 이벤트를 못 받아 "클릭으로 닫기"와 구분이 안 되므로 화면 좌표 기준으로 직접 옮긴다.
+  조정값은 팩별로 `window-state.json`의 `balloon:{packId}` 키에 **원본 100% 좌표 단위**로 저장하고, 화면에 적용할 때 표시 배율 × DPI를
+  곱한다(캐릭터 배율을 바꾸면 말풍선 조정값도 같이 커지고 작아짐). 이 배율 연동이 실제로 필요한지는 사용자가 써 보고 판단 — 불필요하면
+  화면 px 그대로 저장하도록 단순화.
+* **투명 영역 클릭 통과**: v1의 사각형 히트박스는 실제로 불편했다(설정 버튼이 캐릭터의 투명 부분에 가려져 눌리지 않음). 그래서
+  `IWindowBehavior.SetInputShape`(Windows: `SetWindowRgn`)로 창 모양을 불투명 픽셀(알파 16 이상)의 합집합으로 제한한다.
+  레이어(base/눈감김/현재 표정)별 알파를 팩 적용 시 1회 추출해 두고(`LayerAlphaMask`), 창 픽셀 해상도에서 직접 표본 추출해
+  겹치지 않는 사각형 목록으로 만든다(`InputShapeBuilder`). 표정 이미지는 base의 투명 영역에 걸쳐 있을 수 있어(예제 팩은 좌상단)
+  떠 있는 동안만 포함하고, `SetWindowRgn`이 렌더링도 함께 자르므로 표정이 보이기 **전에** 영역을 갱신한다. 배율/DPI/팩이 바뀔 때마다 재계산.
+  **Avalonia 투명 창에서 실제로 먹히는지는 실행 실측 필요** — 안 되면 `GetCursorPos` 폴링 + `WS_EX_TRANSPARENT` 토글로 폴백.
+  말풍선 창은 그림자 여백이 8px뿐이고 12초 이내로만 떠 있어서 대상에서 제외.
+* **타이머/리소스**: 닫힌 창에서 예약돼 있던 깜빡임 콜백이 다음 깜빡임을 다시 걸어 타이머가 영원히 도는 경로를 `_isClosed` 가드로 차단,
+  `_windowCts.Dispose()` 누락과 base/eyeClosed 비트맵 미해제도 함께 정리(팩 교체가 상시 일어날 수 있게 되어서).
+
+### 창 위치/크기 저장과 복원
+* `WindowStateStore` → `%LocalAppData%\StickyGhost\window-state.json`(`main`, `character`). **`settings.json`과 분리**한 이유:
+  `SettingsWindow`가 자기가 들고 있던 `AppSettings` 전체를 덮어써서 저장하므로, 같은 파일에 두면 설정창이 열린 동안 창을 옮겨도
+  옛 위치로 되돌아간다. 메모 창 위치는 기존대로 SQLite(`MemoNote`).
+* `WindowPlacementTracker` — 이동/리사이즈 디바운스(500ms) 저장 + `Closing`에서 즉시 저장. 최소화/최대화 상태에서는 저장하지 않음
+  (최소화 시 `Position`이 (-32000,-32000)). 메인 창만 크기도 저장(작업 영역보다 크면 제한), 캐릭터 창 크기는 배율 설정이 결정.
+* **첫 기동 기본 위치**(본가 우카가카의 "오른쪽 아래 언저리"): 캐릭터 = 작업 영역 우하단, 메인 창 = 우상단(여백 16px).
+  저장된 위치가 화면 밖으로 잘렸으면 이 기본 위치로 되돌리고, 메모 창은 가장 가까운 화면 안으로 clamp
+  (규칙은 `docs/memo-design.md` "창 위치 복원 보강" 참고).

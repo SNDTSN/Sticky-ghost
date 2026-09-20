@@ -14,6 +14,7 @@ public partial class App : Application
     // App.UI는 구체 플랫폼 구현(App.Platform.Windows 등)을 참조하지 않는다 — 실행 진입점(App.Windows의
     // Program.cs)이 StartWithClassicDesktopLifetime 호출 전에 이 델리게이트를 반드시 설정해야 한다.
     public static Func<ISecretStore>? SecretStoreFactory { get; set; }
+    public static Func<IWindowBehavior>? WindowBehaviorFactory { get; set; }
 
     public override void Initialize()
     {
@@ -32,7 +33,11 @@ public partial class App : Application
                 ?? throw new InvalidOperationException(
                     "App.SecretStoreFactory가 설정되지 않음 — 실행 진입점에서 먼저 지정해야 함");
 
-            desktop.MainWindow = new MainWindow(secretStore);
+            var windowBehavior = WindowBehaviorFactory?.Invoke()
+                ?? throw new InvalidOperationException(
+                    "App.WindowBehaviorFactory가 설정되지 않음 — 실행 진입점에서 먼저 지정해야 함");
+
+            desktop.MainWindow = new MainWindow(secretStore, windowBehavior);
 #if DEBUG
             desktop.MainWindow.AttachDevTools();
 #endif

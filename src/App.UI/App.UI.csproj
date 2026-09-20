@@ -35,7 +35,5 @@
   <ItemGroup>
     <ProjectReference Include="..\App.Core\App.Core.csproj" />
     <ProjectReference Include="..\App.Platform\App.Platform.csproj" />
-    <!-- TODO: 임시 배선. DI 컨테이너가 생기면 정식 조립 방식으로 교체 -->
-    <ProjectReference Include="..\App.Platform.Stub\App.Platform.Stub.csproj" />
   </ItemGroup>
 </Project>
