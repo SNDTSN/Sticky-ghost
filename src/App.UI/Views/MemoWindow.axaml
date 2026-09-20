@@ -18,12 +18,13 @@
 
     <Panel>
         <Grid RowDefinitions="Auto,*" Background="{Binding ColorHex, Converter={StaticResource HexColorToBrushConverter}}">
-            <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Right" Margin="4" Spacing="4"
-                        Background="Transparent" PointerPressed="OnHeaderPointerPressed">
-                <ToggleButton Content="📌" IsChecked="{Binding IsPinned}" ToolTip.Tip="항상 위 표시" />
-                <ColorPicker Color="{Binding ColorValue}" ToolTip.Tip="색상 변경" />
-                <Button Content="✕" Command="{Binding RequestCloseCommand}" ToolTip.Tip="닫기" />
-            </StackPanel>
+            <Border Grid.Row="0" Background="Transparent" PointerPressed="OnHeaderPointerPressed">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="4" Spacing="4">
+                    <ToggleButton Content="📌" IsChecked="{Binding IsPinned}" ToolTip.Tip="항상 위 표시" />
+                    <ColorPicker Color="{Binding ColorValue}" ToolTip.Tip="색상 변경" />
+                    <Button Content="✕" Command="{Binding RequestCloseCommand}" ToolTip.Tip="닫기" />
+                </StackPanel>
+            </Border>
             <TextBox Grid.Row="1"
                      Text="{Binding Content}"
                      AcceptsReturn="True"

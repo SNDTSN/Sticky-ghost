@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using App.Core.Domain.Entities;
@@ -32,6 +33,10 @@ public partial class CharacterPreviewWindow : Window
     private DispatcherTimer? _reactionTimer;
     private DispatcherTimer? _lineTimer;
 
+    // 표정마다 반응할 때 new Bitmap()을 반복 생성/미해제하면 네이티브 리소스가 누적되므로,
+    // 창 생성 시 전부 한 번만 디코딩해서 재사용하고 창이 닫힐 때 일괄 Dispose한다.
+    private readonly Dictionary<string, Bitmap> _expressionBitmaps = new();
+
     private Point? _pressStart;
     private Point _lastPoint;
     private double _dragDistance;
@@ -62,6 +67,9 @@ public partial class CharacterPreviewWindow : Window
             Canvas.SetLeft(EyeClosedLayer, pack.Appearance.EyeClosedOffset.X);
             Canvas.SetTop(EyeClosedLayer, pack.Appearance.EyeClosedOffset.Y);
         }
+
+        foreach (var expr in pack.Appearance.Expressions)
+            _expressionBitmaps[expr.Id] = new Bitmap(expr.Image);
 
         RootCanvas.PointerPressed += OnPointerPressed;
         RootCanvas.PointerMoved += OnPointerMoved;
@@ -207,12 +215,12 @@ public partial class CharacterPreviewWindow : Window
     public void ShowExpression(string expressionId)
     {
         var expr = _pack!.Appearance.Expressions.FirstOrDefault(x => x.Id == expressionId);
-        if (expr is null)
+        if (expr is null || !_expressionBitmaps.TryGetValue(expressionId, out var bitmap))
             return;
 
         _reactionTimer?.Stop();
 
-        ExpressionLayer.Source = new Bitmap(expr.Image);
+        ExpressionLayer.Source = bitmap;
         Canvas.SetLeft(ExpressionLayer, expr.Offset.X);
         Canvas.SetTop(ExpressionLayer, expr.Offset.Y);
         ExpressionLayer.IsVisible = true;
@@ -232,5 +240,9 @@ public partial class CharacterPreviewWindow : Window
         _reactionTimer?.Stop();
         _lineTimer?.Stop();
         _windowCts?.Cancel();
+
+        foreach (var bitmap in _expressionBitmaps.Values)
+            bitmap.Dispose();
+        _expressionBitmaps.Clear();
     }
 }

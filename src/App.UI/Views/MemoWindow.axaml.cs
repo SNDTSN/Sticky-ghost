@@ -36,6 +36,15 @@ public partial class MemoWindow : Window
         SizeChanged += (_, _) => RestartSaveTimer();
 
         Opened += (_, _) => viewModel.AttachWindowHandle(TryGetPlatformHandle()?.Handle ?? IntPtr.Zero);
+        Closed += OnWindowClosed;
+    }
+
+    // 타이머를 Stop()하지 않으면 디스패처 타이머 목록에 계속 등록된 채로 남아
+    // Tick 람다가 캡처한 this(창/뷰모델)가 GC되지 못하고 500ms마다 영원히 저장을 시도한다.
+    private void OnWindowClosed(object? sender, EventArgs e)
+    {
+        _saveTimer.Stop();
+        _viewModel?.Dispose();
     }
 
     // SystemDecorations="None"이라 OS가 제공하던 타이틀바 드래그 이동이 없다 — 헤더 영역 클릭 시 직접 이동을 시작한다.

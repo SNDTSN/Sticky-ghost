@@ -10,7 +10,7 @@ using MediaColor = Avalonia.Media.Color;
 
 namespace App.UI.ViewModels;
 
-public partial class MemoNoteViewModel : ViewModelBase
+public partial class MemoNoteViewModel : ViewModelBase, IDisposable
 {
     private readonly MemoNote _memo;
     private readonly IMemoRepository _repository;
@@ -93,6 +93,13 @@ public partial class MemoNoteViewModel : ViewModelBase
 
     /// <summary>메인 창 종료 등으로 디바운스를 기다릴 수 없을 때 대기 중인 내용 저장을 즉시 실행한다.</summary>
     public void FlushContentSave() => SaveContentNow();
+
+    /// <summary>창이 닫힐 때 호출. Stop()으로 디스패처 타이머 목록에서 빠지지 않으면
+    /// Tick 람다가 캡처한 this가 계속 살아남아 창/뷰모델이 GC되지 못한다.</summary>
+    public void Dispose()
+    {
+        _contentSaveTimer.Stop();
+    }
 
     partial void OnColorHexChanged(string value)
     {
