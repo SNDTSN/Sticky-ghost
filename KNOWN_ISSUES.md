@@ -210,7 +210,7 @@ base + 눈감김 + 표정 10개면 약 360MB다. 마스크를 뽑는 동안 같�
 안정성 보강(`ad36343`) 이후 코드 전체를 다시 훑으면서 나온 항목들. **안정성 보강의 회귀는 없었다** — 아래 중 그 변경에서 생긴 것은 #17뿐이고,
 나머지는 그 전부터 있었거나 아직 연결되지 않은 경로다. 전부 코드 읽기 기준이며, 실행으로 확인한 것은 따로 표시했다.
 
-## 16. 팩 폴더 하나가 잘못되면 스캔 전체가 예외로 끝나 캐릭터/설정창이 통째로 막힘 (2026-09-20 재점검)
+## 16. ~~팩 폴더 하나가 잘못되면 스캔 전체가 예외로 끝나 캐릭터/설정창이 통째로 막힘~~ — 해결됨 (2026-09-20)
 
 **어디**: `App.Core/Infrastructure/FileSystem/JsonCharacterPackLoader.cs`의 `Load`(`catch (JsonException)`만 있고 `File.ReadAllText`/`Path.GetFullPath`에는 방어 없음),
 `App.Core/Domain/Services/CharacterPackScanner.cs`의 `ScanAvailablePacks`(폴더 루프에 try/catch 없음), 호출부 `App.UI/Services/CharacterOverlayController.cs`의 `Apply`
@@ -228,8 +228,32 @@ base + 눈감김 + 표정 10개면 약 360MB다. 마스크를 뽑는 동안 같�
 **왜 중요한가**: "이용자가 팩을 직접 만들어 배포한다"는 프로젝트 방향에서 잘못 만든 팩은 예외가 아니라 일상이다. 그런데 그 하나가 캐릭터 기능 전체를 막고
 복구 경로까지 닫는다. 제작자 실수는 막지 말고 경고로 안내한다는 방침(#12)과도 어긋난다.
 
-**개선 방향**: 스캐너의 폴더 루프를 폴더 단위 try/catch로 감싸 예외가 난 폴더만 빼고 기존 `LogExclusionOnce`로 사유를 남긴다. 로더 쪽도 경로/IO 예외를
-검증 오류(`CharacterPackLoadResult.Fail`)로 바꿔 예외 대신 값으로 돌려준다(둘 다 하면 이중 안전망).
+**적용한 수정 (2026-09-20)** — 2단 방어로 넣었다:
+- **1차 (로더)**: `manifest.json` 읽기의 `IOException`/`UnauthorizedAccessException`을 `Fail(["manifest.json을 읽지 못함: ..."])`으로 바꿨다.
+  `ValidateImagePath`를 `TryResolveInsidePack`으로 합치면서 `Path.GetFullPath`의 `ArgumentException`/`PathTooLongException`/`NotSupportedException`을
+  `Fail(["경로로 쓸 수 없는 값: ... (예외명)"])`으로 바꿨다(값은 로그 비대화를 막으려고 80자로 자른다).
+  합치는 김에 같은 인자로 `GetFullPath`를 두 번 부르던 중복도 없앴다 — 이미지 레이어 하나당 문자열 할당 한 번씩 줄어든다.
+- **2차 (스캐너)**: `ScanAvailablePacks`의 폴더 루프를 폴더 단위 `try/catch`로 감싸고, `Directory.GetDirectories` 자체도 감쌌다.
+  문제가 있는 폴더만 빼고 사유는 기존 `LogExclusionOnce`로 남긴다. **"이 메서드는 예외를 밖으로 내보내지 않는다"**를 클래스 주석과
+  `docs/character-widget-design.md`의 불변식으로 못박았다.
+- 설정창 안내 문구에 로그 경로(`%LocalAppData%\StickyGhost\logs\app.log`)를 덧붙여, 팩 제작자가 제외 사유를 스스로 찾을 수 있게 했다.
+
+**검증 (2026-09-20, 앱 실행 없이 `App.Core.dll` 직접 호출)**: 일부러 깨뜨린 팩 폴더 7종을 만들어 스캔했다 —
+정상 팩(`good`) 1개만 목록에 오르고 `ScanAvailablePacks`는 예외 없이 76ms에 반환했다. 폴더별 사유는 아래와 같았고,
+로더에서 예외가 새어 나온 폴더는 **하나도 없었다**(= 스캐너 쪽 `catch`는 실제로는 최후 방어선으로만 남는다).
+
+| 폴더 | 결과 | 사유 |
+|---|---|---|
+| `good` | 성공 | (가이스트) |
+| `nullchar` | 제외 | 경로로 쓸 수 없는 값 — `ArgumentException` ← **고치기 전 크래시 원인** |
+| `toolong` | 제외 | 경로로 쓸 수 없는 값 — `PathTooLongException` ← **고치기 전 크래시 원인** |
+| `escape` | 제외 | 팩 폴더를 벗어남 (기존 검사) |
+| `notpng` | 제외 | PNG 형식이 아니거나 헤더가 손상됨 (기존 검사) |
+| `badjson` | 제외 | JSON 파싱 실패 (기존 검사) |
+| `empty` | 제외 | manifest.json 없음 (기존 검사) |
+
+**남은 것**: 실제 앱에서의 확인은 하지 않았다(위 검증이 로직 전체를 덮어서 우선순위를 낮게 봄). 확인하려면 빌드 출력의
+`CharacterPacks\` 아래에 위 `nullchar` 같은 폴더를 두고 앱을 띄워, 캐릭터가 정상적으로 뜨고 설정창도 열리는지 보면 된다.
 
 ## 17. ~~체크리스트를 체크하면 그 할 일이 목록 아래로 내려감~~ — 해결됨 (2026-09-20, 실행 확인 필요)
 

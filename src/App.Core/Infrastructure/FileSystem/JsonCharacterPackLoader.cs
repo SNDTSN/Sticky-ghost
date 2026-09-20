@@ -32,6 +32,11 @@ public sealed class JsonCharacterPackLoader : ICharacterPackLoader
         {
             return CharacterPackLoadResult.Fail([$"JSON 파싱 실패: {ex.Message}"]);
         }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // 파일이 다른 프로그램에 잡혀 있거나 권한이 없는 경우 — 예외로 터뜨리지 않고 검증 오류로 돌려준다.
+            return CharacterPackLoadResult.Fail([$"manifest.json을 읽지 못함: {ex.Message}"]);
+        }
 
         if (manifest is null)
             return CharacterPackLoadResult.Fail(["JSON 파싱 실패: manifest.json이 비어 있음"]);
@@ -177,17 +182,21 @@ public sealed class JsonCharacterPackLoader : ICharacterPackLoader
     }
 
     /// <summary>
-    /// 이미지 필드 하나를 검증한다: 경로/존재 확인(<see cref="ValidateImagePath"/>) 후 PNG 헤더를 읽어 PNG 전용을 강제하고
-    /// 예상 메모리를 누적한다. 크기 상한은 두지 않는다 — 큰 팩은 설정창에서 "용량 최적화 필요"로 알린다(docs/character-widget-design.md).
+    /// 이미지 필드 하나를 검증한다: 경로 해석(<see cref="TryResolveInsidePack"/>) → 존재 확인 → PNG 헤더를 읽어
+    /// PNG 전용을 강제하고 예상 메모리를 누적한다. 크기 상한은 두지 않는다 — 큰 팩은 설정창에서
+    /// "용량 최적화 필요"로 알린다(docs/character-widget-design.md).
     /// </summary>
     private static void ValidateImage(string packRoot, string imageField, List<string> errors, ref long estimatedMemoryBytes)
     {
-        var errorCountBefore = errors.Count;
-        ValidateImagePath(packRoot, imageField, errors);
-        if (errors.Count != errorCountBefore)
+        if (!TryResolveInsidePack(packRoot, imageField, errors, out var resolvedPath))
             return;
 
-        var resolvedPath = Path.GetFullPath(Path.Combine(packRoot, imageField));
+        if (!File.Exists(resolvedPath))
+        {
+            errors.Add($"파일 없음: {imageField}");
+            return;
+        }
+
         if (!PngHeader.TryReadSize(resolvedPath, out var width, out var height))
         {
             errors.Add($"PNG 형식이 아니거나 헤더가 손상됨: {imageField}");
@@ -197,10 +206,26 @@ public sealed class JsonCharacterPackLoader : ICharacterPackLoader
         estimatedMemoryBytes += (long)width * height * MemoryBytesPerPixel;
     }
 
-    /// <summary>팩 폴더를 벗어나는 경로(절대경로, "..\" 등)를 차단하고 파일 존재를 확인한다.</summary>
-    private static void ValidateImagePath(string packRoot, string imageField, List<string> errors)
+    /// <summary>
+    /// 매니페스트에 적힌 이미지 경로를 실제 경로로 바꾸고, 팩 폴더를 벗어나는 경로(절대경로, "..\" 등)를 차단한다.
+    /// 경로로 쓸 수 없는 값(널 문자가 섞였거나 지나치게 긴 경로 등)은 예외로 터뜨리지 않고 검증 오류로 돌려준다 —
+    /// 이용자가 직접 쓰는 매니페스트에는 무엇이든 들어올 수 있고, 여기서 예외가 새면 스캔 전체가 멈춘다(KNOWN_ISSUES #16).
+    /// </summary>
+    private static bool TryResolveInsidePack(string packRoot, string imageField, List<string> errors, out string resolvedPath)
     {
-        var resolvedPath = Path.GetFullPath(Path.Combine(packRoot, imageField));
+        try
+        {
+            resolvedPath = Path.GetFullPath(Path.Combine(packRoot, imageField));
+        }
+        catch (Exception ex) when (ex is ArgumentException or PathTooLongException or NotSupportedException)
+        {
+            resolvedPath = string.Empty;
+            // 지나치게 긴 값이 그대로 로그로 가지 않도록 잘라서 보여준다(사유 문자열은 AppLog에 실린다).
+            var shown = imageField.Length <= 80 ? imageField : imageField[..80] + "…";
+            errors.Add($"경로로 쓸 수 없는 값: {shown} ({ex.GetType().Name})");
+            return false;
+        }
+
         var rootWithSeparator = packRoot.EndsWith(Path.DirectorySeparatorChar)
             ? packRoot
             : packRoot + Path.DirectorySeparatorChar;
@@ -208,11 +233,10 @@ public sealed class JsonCharacterPackLoader : ICharacterPackLoader
         if (!resolvedPath.StartsWith(rootWithSeparator, StringComparison.OrdinalIgnoreCase))
         {
             errors.Add($"팩 폴더를 벗어남: {imageField}");
-            return;
+            return false;
         }
 
-        if (!File.Exists(resolvedPath))
-            errors.Add($"파일 없음: {imageField}");
+        return true;
     }
 
     private sealed class ManifestDto

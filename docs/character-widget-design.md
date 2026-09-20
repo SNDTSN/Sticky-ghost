@@ -142,6 +142,10 @@ Load(packFolderPath):
          → resolvedPath = Path.GetFullPath(Path.Combine(packFolderPath, imageField))로 정규화 후,
            Path.GetFullPath(packFolderPath) 하위에 있는지 접두사 검사. 벗어나면 errors.Add("팩 폴더를 벗어남: {값}")
            (배포 생태계상 서드파티 팩을 그대로 신뢰할 수 없으므로 필요한 방어)
+       - (2026-09-20 추가) ⚠️ Path.GetFullPath 자체가 던질 수 있다 — 값에 널 문자가 섞이면 ArgumentException,
+         지나치게 길면 PathTooLongException(둘 다 실측 확인). 예외를 내보내지 않고
+         errors.Add("경로로 쓸 수 없는 값: {값} ({예외명})")로 바꿔 돌려준다. 값은 로그가 비대해지지 않게 80자로 자른다.
+         이걸 안 하면 잘못된 팩 하나가 스캔 전체를 멈춰 캐릭터도 설정창도 못 연다(KNOWN_ISSUES #16)
        - 정규화 통과 후 File.Exists(resolvedPath) 확인 → 없으면 errors.Add("파일 없음: {값}")
        - (2026-09-20 추가) PngHeader.TryReadSize(resolvedPath) — PNG 시그니처/IHDR가 아니면 errors.Add("PNG 형식이 아니거나 헤더가 손상됨: {값}"),
          통과하면 예상 메모리 += 가로 * 세로 * 5. 크기 상한 검사는 없다(위 "이미지 규칙과 용량 가이드")
@@ -165,6 +169,12 @@ Load(packFolderPath):
 
     10. errors가 하나라도 있으면 Fail(errors)
         없으면 경로 필드들을 절대경로로 변환해 CharacterPack 조립 → Success(pack)
+
+    ※ 불변식 (2026-09-20): Load는 "매니페스트가 어떻게 생겼든" 예외 대신 Fail(errors)로 돌려주는 것을 목표로 한다.
+      그리고 CharacterPackScanner.ScanAvailablePacks는 **예외를 절대 밖으로 내보내지 않는다** — 폴더마다 try/catch를 두고
+      문제가 있는 폴더만 목록에서 빼고 사유를 app.log의 [pack]에 남긴다. 호출부가 캐릭터 표시와 설정창 생성자라서,
+      여기서 예외가 새면 잘못된 팩 하나 때문에 정상 팩까지 전부 안 보이고 이용자가 팩을 바꾸러 들어갈 UI도 사라진다.
+      로더 쪽 변환이 1차 방어, 스캐너 쪽 try/catch가 최후 방어선이다.
 
 
 // App.Core/Domain/Services/CharacterPackService.cs — 폴백 정책 + 현재 팩 상태
