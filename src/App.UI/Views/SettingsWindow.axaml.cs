@@ -118,8 +118,9 @@ public partial class SettingsWindow : Window
         _settingsStore!.Save(_settings);
 
         // 비워두면 기존 키를 그대로 둔다 — 매번 재입력을 강요하지 않기 위해.
-        var key = ApiKeyTextBox.Text;
-        if (!string.IsNullOrWhiteSpace(key))
+        // 붙여넣기로 딸려온 앞뒤 공백/개행은 HTTP 헤더 값으로 못 쓰는 경우가 있어 저장 전에 잘라낸다.
+        var key = ApiKeyTextBox.Text?.Trim();
+        if (!string.IsNullOrEmpty(key))
             _secretStore!.SaveSecret(LlmProviderCatalog.ApiKeySecretName(provider), key);
 
         Close();

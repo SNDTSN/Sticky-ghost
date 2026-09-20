@@ -61,6 +61,20 @@ LLM 어댑터(OpenAI/Gemini 등)의 API 키를 암호화해서 로컬에 저장.
 
 **Stub 동작**: 항상 `TimeSpan.Zero` 반환 (또는 테스트에서 값을 임의로 설정할 수 있는 세터 제공).
 
+## 실행 진입점 소관 — 단일 인스턴스 (2026-09-20)
+
+`App.Platform` 인터페이스가 아니라 **실행 진입점 프로젝트**(Windows는 `App.Windows/SingleInstanceGuard.cs`)가 직접 구현하는 부분.
+`App.UI`/`App.Core`는 이 구현을 모르고, 기존 인스턴스를 깨우는 통로로 `App.Core`의 IPC 요청 타입 `"activate"`만 공유한다
+(`CharacterIpcRequest.TypeActivate`, 수신 측은 `App.UI`의 `CharacterIpcRequestHandler` → `MainWindow.ActivateSelf`). Mac 이식 시
+`App.Mac`이 아래 표의 대응을 구현하면 된다.
+
+| 기능 | 기대 동작 | Windows 구현 | Mac 후보 API |
+|---|---|---|---|
+| 단일 인스턴스 | 앱이 이미 떠 있으면 두 번째 실행은 창을 띄우지 않고 종료 | 명명 뮤텍스 `Local\StickyGhost.SingleInstance` | `NSRunningApplication.runningApplications(withBundleIdentifier:)`로 중복 검사(또는 잠금 파일) |
+| 기존 창 앞으로 | 두 번째 실행이 기존 인스턴스의 메인 창을 복원하고 앞으로 가져오게 함 | IPC `"activate"` 전송 + 전송 전 `AllowSetForegroundWindow(ASFW_ANY)`(포그라운드 권한 위임) | `NSRunningApplication.activate(options:)` (IPC 없이도 가능) |
+
+상세 트레이드오프와 롤백: `docs/stability-hardening.md` "C1".
+
 ## 다음에 채울 것
 
 캐릭터 엔진/메모 위젯 설계가 진행되면서 트레이 아이콘, 전역 단축키, 알림(토스트) 등 추가 플랫폼 인터페이스가 필요해질 수 있음. 필요해지는 시점에 이 문서에 표를 추가한다 — 미리 만들어두지 않는다.

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
+using App.Core.Diagnostics;
 using App.Core.Domain.Entities;
 using App.Core.Domain.Events;
 using App.Core.Domain.Repositories;
@@ -88,7 +89,7 @@ public partial class MainWindow : Window
             BuildReactionService(_appSettingsStore.Load()));
 
         // App.Mcp(Claude가 스폰하는 별도 프로세스)가 명명 파이프로 say/setExpression을 보내면 여기서 받는다.
-        var ipcHandler = new CharacterIpcRequestHandler(_characterPackService, _characterOverlay);
+        var ipcHandler = new CharacterIpcRequestHandler(_characterPackService, _characterOverlay, ActivateSelf);
         _characterIpcServer = new CharacterIpcServer(ipcHandler);
         _characterIpcServer.Start();
 
@@ -100,28 +101,56 @@ public partial class MainWindow : Window
         Closing += OnClosing;
     }
 
+    // 이중 실행된 두 번째 인스턴스가 IPC("activate")로 요청했을 때 UI 스레드에서 호출된다.
+    // 최소화되어 있으면 복원하고 앞으로 가져온다. 다른 프로세스가 포그라운드 권한을 넘겨준 직후(AllowSetForegroundWindow)에만
+    // Windows가 실제로 앞으로 올려 준다 — App.Windows의 SingleInstanceGuard 참고.
+    private void ActivateSelf()
+    {
+        if (WindowState == WindowState.Minimized)
+            WindowState = WindowState.Normal;
+
+        Activate();
+    }
+
     private void ApplyCharacterSettings()
     {
         try
         {
-            _characterOverlay.Apply(_appSettingsStore.Load());
+            var result = _characterOverlay.Apply(_appSettingsStore.Load());
+            if (result.UsedFallback)
+            {
+                // 선택한 팩을 그리지 못해 기본 캐릭터로 대체했다 — 이유를 모르면 팩이 왜 안 바뀌는지 알 수 없다.
+                // 기동 때마다 뜰 수 있다(선택된 팩 id는 설정에 그대로 남으므로): docs/stability-hardening.md 참고.
+                _ = ConfirmDialog.ShowAsync(
+                    this, $"선택한 캐릭터를 불러오지 못해 기본 캐릭터로 표시합니다.\n{result.FailureReason}");
+            }
         }
-        catch (InvalidOperationException ex)
+        catch (Exception ex)
         {
-            // 내장 캐릭터팩까지 깨진 배포 오류 — 앱 자체는 계속 쓸 수 있게 알림만 띄운다.
+            // 내장 캐릭터팩까지 깨진 배포 오류 등 — 앱 자체는 계속 쓸 수 있게 알림만 띄운다.
+            AppLog.Write("pack", ex);
             _ = ConfirmDialog.ShowAsync(this, ex.Message);
         }
     }
 
     private async void OnSettingsClick(object? sender, RoutedEventArgs e)
     {
-        var packsRootDir = Path.Combine(AppContext.BaseDirectory, "CharacterPacks");
-        await new SettingsWindow(_secretStore, _appSettingsStore, packsRootDir).ShowDialog(this);
+        // async void라 여기서 새는 예외는 프로세스 종료로 이어지므로 전체를 감싼다.
+        try
+        {
+            var packsRootDir = Path.Combine(AppContext.BaseDirectory, "CharacterPacks");
+            await new SettingsWindow(_secretStore, _appSettingsStore, packsRootDir).ShowDialog(this);
 
-        // provider/모델/키가 바뀌었을 수 있으니 재시작 없이 바로 반영되도록 다시 조립한다.
-        _characterOverlay.SetReactionService(BuildReactionService(_appSettingsStore.Load()));
-        // 캐릭터 표시 여부/배율/팩 선택도 재시작 없이 바로 반영한다.
-        ApplyCharacterSettings();
+            // provider/모델/키가 바뀌었을 수 있으니 재시작 없이 바로 반영되도록 다시 조립한다.
+            _characterOverlay.SetReactionService(BuildReactionService(_appSettingsStore.Load()));
+            // 캐릭터 표시 여부/배율/팩 선택도 재시작 없이 바로 반영한다.
+            ApplyCharacterSettings();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Write("settings", ex);
+            _ = ConfirmDialog.ShowAsync(this, $"설정을 적용하는 중 오류가 발생했습니다.\n{ex.Message}");
+        }
     }
 
     private CharacterReactionService BuildReactionService(AppSettings settings)

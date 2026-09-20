@@ -32,6 +32,9 @@ public enum LlmFailure
     NetworkError,
     Timeout,
     InvalidResponse,
+    // 어댑터/시크릿 저장소에서 분류되지 않은 예외가 새어 나온 경우의 안전망(CharacterReactionService가 채움).
+    // 어댑터가 직접 반환하는 값이 아니다 — 2026-09-20 안정성 보강, docs/stability-hardening.md 참고.
+    Unexpected,
 }
 
 public sealed record LlmReactionResult

@@ -103,3 +103,21 @@ v1의 사각형 히트박스는 실제로 불편했다(설정 버튼이 캐릭�
 (`SetWindowRgn`)로 창 모양을 불투명 픽셀(알파 16 이상)의 합집합으로 제한하도록 구현했다. 표정 이미지는 base의 투명 영역에 걸쳐
 있을 수 있어서 떠 있는 동안만 포함한다. **Avalonia 투명 창에서 `SetWindowRgn`이 실제로 렌더링/입력을 자르는지는 실측 필요** —
 안 먹는다면 폴백은 `GetCursorPos` 폴링으로 `WS_EX_TRANSPARENT`를 토글하는 방식.
+
+## 9. 캐릭터 팩 렌더링 실패 안내 다이얼로그가 기동 때마다 뜰 수 있음 (2026-09-20)
+
+**어디**: `App.UI/Views/MainWindow.axaml.cs`의 `ApplyCharacterSettings`.
+
+**증상**: 선택한 팩의 이미지가 손상되어 내장 팩으로 폴백하면 안내 `ConfirmDialog`를 띄운다. 설정의 `SelectedCharacterPackId`는
+그대로 남기 때문에(팩을 고치면 다시 정상 표시되게 하려는 의도) 팩을 고치거나 다른 팩을 고르기 전까지 **실행할 때마다** 뜬다.
+
+**개선 방향**: 기동 시에는 로그만 남기고 설정창을 닫은 직후에만 띄우기, 또는 폴백 시 설정의 팩 id를 지우기. 상세: `docs/stability-hardening.md` "C2".
+
+## 10. UI 미처리 예외를 삼키고 계속 실행 — 예외 이후 상태가 어긋날 수 있음 (2026-09-20)
+
+**어디**: `App.UI/App.axaml.cs`의 `Dispatcher.UIThread.UnhandledException` 핸들러(`e.Handled = true`).
+
+**증상**: 예외를 로그(`%LocalAppData%\StickyGhost\logs\app.log`의 `[ui-unhandled]`)에만 남기고 앱은 계속 돈다. 사용자에게는 아무 알림이
+없고, 예외 시점 이후 UI/상태가 절반만 갱신된 채 남을 수 있다. "이상하게 동작하는데 죽지는 않는다"면 이 로그를 먼저 본다.
+
+**되돌리는 법**: `e.Handled = true;` 한 줄 삭제(예외 시 종료 — 로그는 남음). 상세: `docs/stability-hardening.md` "G".

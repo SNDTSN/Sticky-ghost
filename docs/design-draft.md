@@ -26,9 +26,9 @@ Sticky Ghost(이하 본 프로젝트)는 우카가카(伺か)에서 영감을 �
 * **LLM 연동 모델**: OpenAI/Gemini 등은 위젯이 능동적으로 호출하는 어댑터 방식. Claude는 서드파티의 구독 OAuth 토큰 재사용이 약관 위반이므로, 위젯이 MCP 서버가 되어 Claude Code/Desktop이 클라이언트로 붙는 수동 반응 모델 사용 (`stackchan-mcp`와 동일 패턴). 이 때문에 Claude 연동은 다른 어댑터와 달리 캐릭터가 "스스로 말 거는" 동작이 제한됨.
 * **캐릭터 에셋 포맷**: PNG 레이어 + JSON 매니페스트. 모딩 자유도를 우선하여 Live2D/Spine 같은 유료·라이선스 종속 툴체인은 배제.
 * **모듈 구조** (`src/` 하위):
-  * `App.Core` — to-do/메모 도메인 로직, SQLite 리포지토리 구현(플랫폼 무관이므로 Core에 포함), LLM 어댑터, 캐릭터 팩 로딩, 이벤트 버스
+  * `App.Core` — to-do/메모 도메인 로직, SQLite 리포지토리 구현(플랫폼 무관이므로 Core에 포함), LLM 어댑터, 캐릭터 팩 로딩, 이벤트 버스, 진단 로그(`AppLog`)
   * `App.UI` — Avalonia 뷰/뷰모델 (플랫폼 무관 라이브러리 — 구체 플랫폼 구현은 직접 참조하지 않음, 아래 `App.Windows` 참고)
-  * `App.Windows` — Windows 실행 진입점(WinExe, `net8.0-windows`). `App.UI` + `App.Platform.Windows`를 둘 다 참조하는
+  * `App.Windows` — Windows 실행 진입점(WinExe, `net8.0-windows`)이자 단일 인스턴스 가드(`SingleInstanceGuard`). `App.UI` + `App.Platform.Windows`를 둘 다 참조하는
     유일한 프로젝트로, 여기서 구체 플랫폼 구현을 조립해 `App.UI`에 주입한다. Mac 이식 시 같은 역할의 `App.Mac`을 추가
     (`docs/PORTING.md` 참고)
   * `App.Platform` — 플랫폼 인터페이스 정의만 (`IWindowBehavior`, `ISecretStore`, `IIdleDetector`)

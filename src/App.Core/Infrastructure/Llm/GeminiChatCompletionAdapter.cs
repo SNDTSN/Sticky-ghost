@@ -30,7 +30,19 @@ public sealed class GeminiChatCompletionAdapter : ICharacterLlmAdapter
         using var timeoutCts = new CancellationTokenSource(RequestTimeout);
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
 
-        using var httpRequest = BuildHttpRequest(request);
+        HttpRequestMessage httpRequest;
+        try
+        {
+            httpRequest = BuildHttpRequest(request);
+        }
+        catch (FormatException)
+        {
+            // API 키에 헤더로 못 보내는 문자(개행 등)가 섞인 경우 — Headers.Add가 FormatException을 던진다.
+            // 사실상 잘못된 키이므로 인증 실패로 분류한다.
+            return LlmReactionResult.Failed(LlmFailure.Unauthorized);
+        }
+
+        using var httpRequestScope = httpRequest;
 
         HttpResponseMessage response;
         try
@@ -165,6 +177,16 @@ public sealed class GeminiChatCompletionAdapter : ICharacterLlmAdapter
         }
         catch (JsonException)
         {
+            return false;
+        }
+        catch (KeyNotFoundException)
+        {
+            // 본문이 JSON이지만 error.message 구조가 아닌 경우(프록시 응답 등).
+            return false;
+        }
+        catch (InvalidOperationException)
+        {
+            // 루트가 객체가 아니거나 message가 문자열이 아닌 경우.
             return false;
         }
         catch (OperationCanceledException)

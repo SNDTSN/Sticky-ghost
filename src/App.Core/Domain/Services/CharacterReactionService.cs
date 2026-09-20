@@ -1,5 +1,6 @@
 using App.Core.Domain.Events;
 using App.Core.Domain.Repositories;
+using App.Core.Diagnostics;
 using App.Platform;
 
 namespace App.Core.Domain.Services;
@@ -21,6 +22,7 @@ public sealed class CharacterReactionService
         [LlmFailure.NetworkError] = "인터넷이 잘 안 되는 것 같아...",
         [LlmFailure.Timeout] = "생각하다가 시간이 다 됐어...",
         [LlmFailure.InvalidResponse] = "지금은 뭐라고 해야 할지 잘 모르겠어.",
+        [LlmFailure.Unexpected] = "앗, 뭔가 잘못된 것 같아...",
     };
 
     private readonly ICharacterLlmAdapter _adapter;
@@ -50,6 +52,26 @@ public sealed class CharacterReactionService
         ReactAsync($"사용자가 다음과 같이 말했다: {message}", cancellationToken);
 
     private async Task<LlmReactionResult> ReactAsync(string rawStimulus, CancellationToken cancellationToken)
+    {
+        // 호출부(CharacterWindow.HandleTouchEvent)가 async void라 여기서 새는 예외는 곧바로 프로세스 종료로 이어진다.
+        // 어댑터가 분류하지 못한 예외(시크릿 파일 IO, 예상 못 한 응답 형태 등)는 Unexpected 실패로 바꿔 폴백 대사를 돌려준다.
+        // 호출자가 건 취소(창 종료)는 실패가 아니므로 그대로 전파한다.
+        try
+        {
+            return await ReactCoreAsync(rawStimulus, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Write("llm", ex);
+            return LlmReactionResult.Failed(LlmFailure.Unexpected) with { Line = FallbackLines[LlmFailure.Unexpected] };
+        }
+    }
+
+    private async Task<LlmReactionResult> ReactCoreAsync(string rawStimulus, CancellationToken cancellationToken)
     {
         var pack = _packService.CurrentPack
             ?? throw new InvalidOperationException("팩이 로드되지 않은 상태에서 반응 호출됨");

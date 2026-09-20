@@ -221,7 +221,9 @@ LlmReactionResult
     ExpressionId: string?      // 표정 변경 없음 = null (LLM이 생략했거나, 유효하지 않아 걸러진 경우 모두 null)
     Failure: LlmFailure?
 
-enum LlmFailure { NotConfigured, Unauthorized, NetworkError, Timeout, InvalidResponse }
+enum LlmFailure { NotConfigured, Unauthorized, NetworkError, Timeout, InvalidResponse, Unexpected }
+// Unexpected(2026-09-20 추가): 어댑터가 반환하는 값이 아니라 CharacterReactionService가 미분류 예외를 잡아 채우는 안전망 값.
+// 상세와 롤백 방법은 docs/stability-hardening.md "C3".
 ```
 
 ### `CharacterReactionService` — 오케스트레이터
@@ -277,6 +279,11 @@ sealed class CharacterReactionService
 
         return result
 ```
+
+**안전망(2026-09-20)**: 위 의사코드의 `ReactAsync` 본문 전체가 `try/catch`로 감싸져 있어, 호출자가 건 취소 외의 미분류 예외는
+`LlmFailure.Unexpected` 결과 + 폴백 대사로 바뀌고 `app.log`에 남는다(호출부 `CharacterWindow.HandleTouchEvent`가 async void라 예외가 새면
+프로세스가 죽기 때문). "실패 시 무반응 대신 폴백 대사" 원칙이 어댑터가 분류한 실패뿐 아니라 예상 못 한 예외까지 확장된 셈이다.
+상세: `docs/stability-hardening.md` "C3".
 
 ### `ISecretStore` Windows 구현 — `DpapiSecretStore`
 
@@ -346,7 +353,9 @@ JSON Schema에 `AvailableExpressionIds + null`을 `enum` 제약으로 걸어 "�
 매 툴 호출마다 새로 연결:
 ```
 PipeName = "StickyGhost.CharacterIpc"
-record CharacterIpcRequest(string Type, string? Text, string? ExpressionId)   // Type: "say" | "setExpression"
+record CharacterIpcRequest(string Type, string? Text, string? ExpressionId)   // Type: "say" | "setExpression" | "activate"
+// "activate"(2026-09-20 추가)는 캐릭터 조작이 아니라 이중 실행된 두 번째 인스턴스가 기존 인스턴스의 메인 창을 앞으로
+// 가져오게 하는 앱 제어 요청. App.Mcp는 툴로 노출하지 않는다. docs/stability-hardening.md "C1".
 record CharacterIpcResponse(bool IsSuccess, string? ErrorMessage)
 ```
 
@@ -490,6 +499,10 @@ Avalonia 창 조작이라는 사실은 모른다.
   말풍선 창은 그림자 여백이 8px뿐이고 12초 이내로만 떠 있어서 대상에서 제외.
 * **타이머/리소스**: 닫힌 창에서 예약돼 있던 깜빡임 콜백이 다음 깜빡임을 다시 걸어 타이머가 영원히 도는 경로를 `_isClosed` 가드로 차단,
   `_windowCts.Dispose()` 누락과 base/eyeClosed 비트맵 미해제도 함께 정리(팩 교체가 상시 일어날 수 있게 되어서).
+* **팩 적용 실패 처리 (2026-09-20)**: 매니페스트 검증은 이미지 "존재"만 보므로 손상된 PNG는 디코딩 단계에서야 예외가 난다.
+  `SetPack`은 새 이미지를 지역 변수로 먼저 전부 디코딩하고 성공한 뒤에만 기존 자원과 교체한다(실패 시 이전 팩 유지, 교체 순간 두 팩의
+  비트맵이 잠깐 공존). `CharacterOverlayController.Apply`는 렌더링 예외 시 내장 팩으로 폴백하고 `PackApplyResult.UsedFallback`으로
+  알리며, `MainWindow`가 안내 다이얼로그를 띄운다(기동 때마다 뜰 수 있음). 상세와 롤백: `docs/stability-hardening.md` "C2".
 
 ### 창 위치/크기 저장과 복원
 * `WindowStateStore` → `%LocalAppData%\StickyGhost\window-state.json`(`main`, `character`). **`settings.json`과 분리**한 이유:

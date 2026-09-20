@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using App.Core.Domain.Services;
@@ -15,15 +16,26 @@ public sealed class CharacterIpcRequestHandler : ICharacterIpcRequestHandler
 {
     private readonly CharacterPackService _packService;
     private readonly CharacterOverlayController _overlay;
+    private readonly Action _activateMainWindow;
 
-    public CharacterIpcRequestHandler(CharacterPackService packService, CharacterOverlayController overlay)
+    /// <param name="activateMainWindow">이중 실행된 두 번째 인스턴스의 요청("activate")으로 메인 창을 앞으로 가져오는 동작. UI 스레드에서 실행된다.</param>
+    public CharacterIpcRequestHandler(
+        CharacterPackService packService, CharacterOverlayController overlay, Action activateMainWindow)
     {
         _packService = packService;
         _overlay = overlay;
+        _activateMainWindow = activateMainWindow;
     }
 
     public CharacterIpcResponse Handle(CharacterIpcRequest request)
     {
+        // 캐릭터 팩 로드/표시 여부와 무관한 앱 제어 요청이라 아래 검사보다 먼저 처리한다.
+        if (request.Type == CharacterIpcRequest.TypeActivate)
+        {
+            Dispatcher.UIThread.Post(_activateMainWindow);
+            return new CharacterIpcResponse(true, null);
+        }
+
         var pack = _packService.CurrentPack;
         if (pack is null)
             return new CharacterIpcResponse(false, "캐릭터팩이 로드되지 않음");

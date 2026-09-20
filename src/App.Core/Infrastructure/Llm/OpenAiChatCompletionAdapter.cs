@@ -35,7 +35,18 @@ public sealed class OpenAiChatCompletionAdapter : ICharacterLlmAdapter
         using var timeoutCts = new CancellationTokenSource(RequestTimeout);
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
 
-        using var httpRequest = BuildHttpRequest(request);
+        HttpRequestMessage httpRequest;
+        try
+        {
+            httpRequest = BuildHttpRequest(request);
+        }
+        catch (FormatException)
+        {
+            // API 키에 헤더로 못 보내는 문자(개행 등)가 섞인 경우 — 사실상 잘못된 키이므로 인증 실패로 분류한다.
+            return LlmReactionResult.Failed(LlmFailure.Unauthorized);
+        }
+
+        using var httpRequestScope = httpRequest;
 
         HttpResponseMessage response;
         try

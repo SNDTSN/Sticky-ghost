@@ -1,5 +1,6 @@
 using System.IO.Pipes;
 using System.Text.Json;
+using App.Core.Diagnostics;
 
 namespace App.Core.Infrastructure.Ipc;
 
@@ -10,6 +11,9 @@ namespace App.Core.Infrastructure.Ipc;
 /// </summary>
 public sealed class CharacterIpcServer
 {
+    private const int InitialFailDelayMs = 500;
+    private const int MaxFailDelayMs = 10_000;
+
     private readonly ICharacterIpcRequestHandler _handler;
     private CancellationTokenSource? _cts;
     private Task? _acceptLoopTask;
@@ -32,6 +36,11 @@ public sealed class CharacterIpcServer
 
     private async Task RunAcceptLoopAsync(CancellationToken cancellationToken)
     {
+        // Start()를 부른 UI 스레드에서 첫 await 전까지 동기로 도는 것을 막는다. 파이프 생성이 계속 실패하는 경우
+        // (예: 다른 인스턴스가 이미 파이프를 잡고 있음) 이전 구현은 catch에서 곧바로 재시도해 UI 스레드가 무한 루프에 빠졌다.
+        await Task.Yield();
+
+        var failDelayMs = InitialFailDelayMs;
         while (!cancellationToken.IsCancellationRequested)
         {
             try
@@ -45,14 +54,27 @@ public sealed class CharacterIpcServer
 
                 await pipeServer.WaitForConnectionAsync(cancellationToken);
                 await HandleOneConnectionAsync(pipeServer, cancellationToken);
+                failDelayMs = InitialFailDelayMs;
             }
             catch (OperationCanceledException)
             {
                 break;
             }
-            catch
+            catch (Exception ex)
             {
                 // 연결 하나가 이상하게 끊기거나 파싱이 깨져도 루프 자체는 계속 살아있어야 한다 — 다음 연결을 계속 받음.
+                // 단, 같은 원인으로 계속 실패해도 CPU를 태우지 않도록 지수 백오프로 쉰다.
+                AppLog.Write("ipc", ex);
+                try
+                {
+                    await Task.Delay(failDelayMs, cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+
+                failDelayMs = Math.Min(failDelayMs * 2, MaxFailDelayMs);
             }
         }
     }

@@ -9,3 +9,4 @@
 - 이벤트 버스 (`ITodoEventBus` 등)
 
 `App.Platform`의 인터페이스에만 의존하고, 구체 구현(`App.Platform.Windows` 등)은 참조하지 않는다.
+- 진단 로그 `AppLog` (`Diagnostics/`, `%LocalAppData%\StickyGhost\logs\app.log`) — 안전망이 삼킨 예외의 흔적 (`docs/stability-hardening.md`)

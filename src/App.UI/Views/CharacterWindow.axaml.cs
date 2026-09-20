@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using App.Core.Diagnostics;
 using App.Core.Domain.Entities;
 using App.Core.Domain.Events;
 using App.Core.Domain.Services;
@@ -114,7 +115,17 @@ public partial class CharacterWindow : Window
         _bubble.OffsetChanged += OnBalloonOffsetChanged;
         Closed += OnClosed;
 
-        SetPack(pack, scalePercent);
+        try
+        {
+            SetPack(pack, scalePercent);
+        }
+        catch
+        {
+            // 생성 도중 실패한 창은 호출부가 참조를 갖지 못하므로 Closed도 오지 않는다 — 미리 만들어 둔 말풍선 창과 토큰을 여기서 정리.
+            _bubble.Close();
+            _windowCts.Dispose();
+            throw;
+        }
 
         // 크기가 정해진 뒤에 위치를 복원한다. 처음 실행이거나 화면 밖으로 잘렸으면 우하단(본가 우카가카식)에서 시작.
         _placementTracker = new WindowPlacementTracker(this, stateStore, "character", trackSize: false);
@@ -134,6 +145,43 @@ public partial class CharacterWindow : Window
     {
         var keepAnchor = _pack is not null;
 
+        // 새 팩의 이미지를 지역 변수로 먼저 전부 디코딩한다. 매니페스트 검증은 파일 존재만 확인하므로 손상된 PNG는
+        // 여기서야 예외로 드러나는데, 이때 기존 상태(이전 팩)를 이미 지워버렸다면 창이 반쯤 빈 채로 남는다.
+        // 하나라도 실패하면 지역 자원만 정리하고 예외를 다시 던져 호출부(CharacterOverlayController)가 폴백하게 한다.
+        // 대가: 교체 순간 이전 팩과 새 팩의 비트맵이 잠깐 동시에 메모리에 있다.
+        Bitmap? newBase = null;
+        Bitmap? newEyeClosed = null;
+        LayerAlphaMask? newBaseMask = null;
+        LayerAlphaMask? newEyeClosedMask = null;
+        var newExpressionBitmaps = new Dictionary<string, Bitmap>();
+        var newExpressionMasks = new Dictionary<string, LayerAlphaMask>();
+        try
+        {
+            newBase = new Bitmap(pack.Appearance.BaseImage);
+            newBaseMask = LayerAlphaMask.FromBitmap(newBase);
+
+            if (pack.Appearance.EyeClosedImage is not null)
+            {
+                newEyeClosed = new Bitmap(pack.Appearance.EyeClosedImage);
+                newEyeClosedMask = LayerAlphaMask.FromBitmap(newEyeClosed);
+            }
+
+            foreach (var expr in pack.Appearance.Expressions)
+            {
+                var bitmap = new Bitmap(expr.Image);
+                newExpressionBitmaps[expr.Id] = bitmap;
+                newExpressionMasks[expr.Id] = LayerAlphaMask.FromBitmap(bitmap);
+            }
+        }
+        catch
+        {
+            newBase?.Dispose();
+            newEyeClosed?.Dispose();
+            foreach (var bitmap in newExpressionBitmaps.Values)
+                bitmap.Dispose();
+            throw;
+        }
+
         StopAnimationTimers();
         ReleaseBitmaps();
         ResetGestures();
@@ -142,29 +190,27 @@ public partial class CharacterWindow : Window
         _scalePercent = scalePercent;
         Title = $"캐릭터 - {pack.Name}";
 
-        _baseBitmap = new Bitmap(pack.Appearance.BaseImage);
-        _baseMask = LayerAlphaMask.FromBitmap(_baseBitmap);
-        RootCanvas.Width = _baseBitmap.PixelSize.Width;
-        RootCanvas.Height = _baseBitmap.PixelSize.Height;
-        BaseLayer.Source = _baseBitmap;
+        _baseBitmap = newBase;
+        _baseMask = newBaseMask;
+        RootCanvas.Width = newBase.PixelSize.Width;
+        RootCanvas.Height = newBase.PixelSize.Height;
+        BaseLayer.Source = newBase;
         Canvas.SetLeft(BaseLayer, 0);
         Canvas.SetTop(BaseLayer, 0);
 
-        if (pack.Appearance.EyeClosedImage is not null)
+        if (newEyeClosed is not null)
         {
-            _eyeClosedBitmap = new Bitmap(pack.Appearance.EyeClosedImage);
-            _eyeClosedMask = LayerAlphaMask.FromBitmap(_eyeClosedBitmap);
-            EyeClosedLayer.Source = _eyeClosedBitmap;
+            _eyeClosedBitmap = newEyeClosed;
+            _eyeClosedMask = newEyeClosedMask;
+            EyeClosedLayer.Source = newEyeClosed;
             Canvas.SetLeft(EyeClosedLayer, pack.Appearance.EyeClosedOffset.X);
             Canvas.SetTop(EyeClosedLayer, pack.Appearance.EyeClosedOffset.Y);
         }
 
-        foreach (var expr in pack.Appearance.Expressions)
-        {
-            var bitmap = new Bitmap(expr.Image);
-            _expressionBitmaps[expr.Id] = bitmap;
-            _expressionMasks[expr.Id] = LayerAlphaMask.FromBitmap(bitmap);
-        }
+        foreach (var (id, bitmap) in newExpressionBitmaps)
+            _expressionBitmaps[id] = bitmap;
+        foreach (var (id, mask) in newExpressionMasks)
+            _expressionMasks[id] = mask;
 
         LoadBalloonOffset(pack.Id);
         ApplySize(keepAnchor);
@@ -444,6 +490,12 @@ public partial class CharacterWindow : Window
         catch (OperationCanceledException)
         {
             // 창이 닫히면서 취소된 경우 — 무시.
+        }
+        catch (Exception ex)
+        {
+            // async void라 여기서 새는 예외는 프로세스 종료로 이어진다. LLM 경로의 예외는 CharacterReactionService가
+            // 이미 폴백으로 바꾸므로, 여기는 그 뒤(표정/말풍선 반영 등 UI 쪽)에서 난 예외를 위한 두 번째 안전망이다.
+            AppLog.Write("ui", ex);
         }
         finally
         {
