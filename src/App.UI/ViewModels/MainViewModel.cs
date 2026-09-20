@@ -106,7 +106,7 @@ public partial class MainViewModel : ViewModelBase
     {
         Items.Clear();
         var categoryLookup = _categoryRepository.GetAll().ToDictionary(c => c.Id);
-        foreach (var item in _todoRepository.GetIncomplete().OrderBy(i => i.DueDate ?? DateTime.MaxValue))
+        foreach (var item in _todoRepository.GetIncomplete().OrderBy(TodoSortKey.From))
         {
             Category? category = item.CategoryId is { } categoryId && categoryLookup.TryGetValue(categoryId, out var found)
                 ? found
@@ -188,13 +188,22 @@ public partial class MainViewModel : ViewModelBase
             ? _categoryRepository.GetAll().FirstOrDefault(c => c.Id == categoryId)
             : null;
         var vm = new TodoItemViewModel(item, category, CompleteTodo, ToggleChecklistItem, DeleteTodoAsync);
+        var key = vm.SortKey;
+
+        // 정렬 키가 그대로면 자리를 옮기지 않는다 — 제거 후 재삽입은 ListBox의 스크롤 위치를 튀게 한다.
+        if (existingIndex >= 0 && Items[existingIndex].SortKey == key)
+        {
+            Items[existingIndex] = vm;
+            return;
+        }
 
         if (existingIndex >= 0)
             Items.RemoveAt(existingIndex);
 
+        // 키가 전순서(마감일 → 사분면 → 생성순 → Id)라 들어갈 자리가 유일하게 정해진다.
+        // 그래서 이렇게 하나씩 끼워 넣은 순서는 LoadItems가 전체를 다시 정렬한 결과와 항상 같다.
         var insertAt = 0;
-        var key = item.DueDate ?? DateTime.MaxValue;
-        while (insertAt < Items.Count && (Items[insertAt].DueDate ?? DateTime.MaxValue) <= key)
+        while (insertAt < Items.Count && Items[insertAt].SortKey <= key)
             insertAt++;
         Items.Insert(insertAt, vm);
     }
@@ -287,6 +296,11 @@ public partial class MainViewModel : ViewModelBase
         RemoveItem(id);
     }
 
+    // 저장만 하고 목록은 건드리지 않는다. 체크 상태는 누른 ChecklistItemViewModel에 이미 반영돼 있고,
+    // 할 일 템플릿에는 체크리스트에서 파생되는 표시(진행률 배지 등)가 없어서 VM을 다시 만들 이유가 없다.
+    // 예전에는 여기서 UpsertItem을 불러 VM을 새로 만들었는데, 그 바람에 정렬 키가 그대로인데도
+    // 항목이 목록 아래로 밀려났다(KNOWN_ISSUES #17). 나중에 진행률 표시를 넣는다면 그때는
+    // UpsertItem을 다시 불러야 하고, 제자리 교체 분기가 순서를 지켜준다.
     private void ToggleChecklistItem(Guid todoId, Guid checklistItemId, bool isChecked)
     {
         var item = _todoRepository.Get(todoId);
@@ -296,6 +310,5 @@ public partial class MainViewModel : ViewModelBase
 
         checklistItem.IsChecked = isChecked;
         _todoRepository.Save(item);
-        UpsertItem(item);
     }
 }

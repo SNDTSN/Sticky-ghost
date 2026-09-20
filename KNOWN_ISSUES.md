@@ -171,6 +171,10 @@ base + 눈감김 + 표정 10개면 약 360MB다. 마스크를 뽑는 동안 같�
 **같은 결의 사소한 것**: `CharacterWindow.ScheduleNextBlink`/`PlayBlink`가 깜빡임(2~6초 간격)마다 `DispatcherTimer`와 클로저를 새로 만든다. `Stop()`은 하므로 누수는
 아니고 gen0 부담뿐이다. 타이머 하나를 만들어 `Interval`만 바꿔 쓰면 된다.
 
+**추가 발견 (2026-09-20 재점검)**: 문제는 할당만이 아니라 **계산 비용**이다. `Build`는 창의 물리 픽셀 수 × 레이어 수만큼 UI 스레드에서 순회한다(표정 반응 1회당 두 번).
+예제 팩(304×324)은 무시할 수준이지만, #12에서 "막지 않고 경고만" 하기로 한 큰 팩을 배율 200% + DPI 150%로 쓰면 호출당 수백만 픽셀을 훑게 되어 반응할 때마다 화면이
+멈칫할 수 있다(실측하지 않음). 위의 "결과 캐시 / 버퍼 재사용" 개선은 이 비용까지 같이 없앤다.
+
 ## 14. IPC 서버가 연결당 타임아웃/라인 길이 상한이 없음 (2026-09-20 점검)
 
 **어디**: `App.Core/Infrastructure/Ipc/CharacterIpcServer.cs`의 `HandleOneConnectionAsync`(`ReadLineAsync`에 시간·길이 제한 없음), 클라이언트
@@ -194,6 +198,174 @@ base + 눈감김 + 표정 10개면 약 360MB다. 마스크를 뽑는 동안 같�
 - 마감이 이미 지났는데 한 번도 알리지 않은 항목은 첫 분기(`minutesLeft <= threshold && !NotifiedDueSoon`)에 걸려 `TodoDueSoon(minutesLeft = 음수)`로 나간다.
   LLM 자극 문장이 "마감이 -300분 남았는데"가 된다.
 - `TodoOverdue`는 중복 방지 플래그가 없어 검사할 때마다(1분 주기 가정) 계속 발행된다. LLM에 연결하면 매분 API 호출 = 비용이다.
+- 마감 **시각**이 항상 00:00이다(입력이 `DatePicker`의 날짜뿐). 그래서 "오늘까지 할 일"이 그날 내내 마감 초과로 판정된다. 상세: #19-(3).
 
 **개선 방향**: `dueDate < now` 분기를 먼저 검사하고, 초과 알림용 `NotifiedOverdue` 플래그를 추가한다(컬럼 추가는 #2의 `EnsureColumnExists` 방식으로 가능).
 또는 이벤트를 받는 쪽에서 (항목 id, 종류) 단위로 디바운스한다. `docs/todo-design.md`의 의사코드도 함께 고친다.
+
+---
+
+# 2026-09-20 재점검에서 새로 발견한 것 (#16~#23)
+
+안정성 보강(`ad36343`) 이후 코드 전체를 다시 훑으면서 나온 항목들. **안정성 보강의 회귀는 없었다** — 아래 중 그 변경에서 생긴 것은 #17뿐이고,
+나머지는 그 전부터 있었거나 아직 연결되지 않은 경로다. 전부 코드 읽기 기준이며, 실행으로 확인한 것은 따로 표시했다.
+
+## 16. 팩 폴더 하나가 잘못되면 스캔 전체가 예외로 끝나 캐릭터/설정창이 통째로 막힘 (2026-09-20 재점검)
+
+**어디**: `App.Core/Infrastructure/FileSystem/JsonCharacterPackLoader.cs`의 `Load`(`catch (JsonException)`만 있고 `File.ReadAllText`/`Path.GetFullPath`에는 방어 없음),
+`App.Core/Domain/Services/CharacterPackScanner.cs`의 `ScanAvailablePacks`(폴더 루프에 try/catch 없음), 호출부 `App.UI/Services/CharacterOverlayController.cs`의 `Apply`
+(스캔이 try 블록 **바깥**), `App.UI/Views/SettingsWindow.axaml.cs` 생성자.
+
+**증상**: 로더는 매니페스트의 **JSON 파싱 실패**만 오류 목록으로 바꾼다. 그 밖의 예외는 그대로 위로 나간다:
+- 이미지 경로에 널 문자가 섞이면 `Path.GetFullPath`가 `ArgumentException`(.NET에서 실측 확인).
+- 경로가 지나치게 길면 `PathTooLongException`(실측 확인).
+- `manifest.json`을 읽는 중 `IOException`/`UnauthorizedAccessException`(다른 프로그램이 파일을 잡고 있거나 권한이 없을 때).
+
+스캐너는 폴더 하나에서 예외가 나면 목록 전체를 포기한다. 결과적으로 **잘못된 팩 폴더 하나가 정상 팩까지 전부 안 보이게 만든다.** 앱이 죽지는 않지만
+(`ApplyCharacterSettings`/`OnSettingsClick`의 catch가 받는다) 캐릭터가 뜨지 않고 오류 다이얼로그만 뜨며, **설정창도 생성자에서 같은 스캔을 하므로 열리지 않는다** —
+즉 이용자가 문제의 팩을 바꾸러 들어갈 UI 자체가 사라져서 `manifest.json`을 손으로 고치는 것 말고는 복구 수단이 없다.
+
+**왜 중요한가**: "이용자가 팩을 직접 만들어 배포한다"는 프로젝트 방향에서 잘못 만든 팩은 예외가 아니라 일상이다. 그런데 그 하나가 캐릭터 기능 전체를 막고
+복구 경로까지 닫는다. 제작자 실수는 막지 말고 경고로 안내한다는 방침(#12)과도 어긋난다.
+
+**개선 방향**: 스캐너의 폴더 루프를 폴더 단위 try/catch로 감싸 예외가 난 폴더만 빼고 기존 `LogExclusionOnce`로 사유를 남긴다. 로더 쪽도 경로/IO 예외를
+검증 오류(`CharacterPackLoadResult.Fail`)로 바꿔 예외 대신 값으로 돌려준다(둘 다 하면 이중 안전망).
+
+## 17. ~~체크리스트를 체크하면 그 할 일이 목록 아래로 내려감~~ — 해결됨 (2026-09-20, 실행 확인 필요)
+
+**어디**: `App.UI/ViewModels/MainViewModel.cs`의 `UpsertItem`(정렬 삽입), 호출부 `ToggleChecklistItem`.
+`064785c`에서 "매번 전체 재구성" 대신 "변경된 항목 하나만 갱신"으로 바꾸면서 생겼다 — 이번 점검에서 나온 것 중 유일하게 최근 변경에서 비롯된 항목이다.
+
+**증상**: `UpsertItem`은 항목을 목록에서 뺀 뒤 마감일 순서에 맞는 자리에 다시 넣는데, 삽입 위치를 "키가 **같거나** 이른 항목의 뒤"(`<=`)로 잡는다.
+그래서 마감일이 같은 항목들 사이에서는 언제나 맨 뒤로 간다. 마감일이 없는 항목은 키가 전부 `DateTime.MaxValue`라 **마감일 없는 항목 전체의 맨 끝**으로 밀린다.
+체크리스트 항목을 하나 체크할 때마다(`ToggleChecklistItem` → `UpsertItem`) 이 일이 일어나므로 사용자는 "체크했더니 할 일이 아래로 뛰어내려간다"를 본다.
+재시작하면(`LoadItems`) 원래 순서로 돌아오고, `ObservableCollection`에서 제거 후 삽입이라 ListBox 스크롤 위치도 함께 튄다.
+
+**같이 얽힌 것**: `SqliteTodoRepository.GetIncomplete()`에 `ORDER BY`가 없어서 마감일이 같은 항목들의 순서는 DB 스캔 순서에 달려 있다.
+`LoadItems`의 `OrderBy`는 안정 정렬이라 그 순서를 그대로 물려받는다 — 즉 "원래 순서"의 기준 자체가 코드 어디에도 명시돼 있지 않다.
+
+**적용한 수정 (2026-09-20)**:
+- `ToggleChecklistItem`이 `UpsertItem` 호출을 그만두고 저장만 한다 — 이게 실제 수정이다. 체크 상태는 이미 화면에 반영돼 있고,
+  할 일 템플릿에 체크리스트에서 파생되는 표시(진행률 배지 등)가 없어서 VM을 다시 만들 이유가 애초에 없었다.
+- 정렬 규칙을 `App.Core/Domain/Services/TodoSortKey.cs`(신규) 한 곳으로 모았다: **마감일(날짜) → 아이젠하워 사분면(긴급 우선) → 생성순 → `Id`**.
+  `LoadItems`와 `UpsertItem`이 같은 키를 쓴다 — 두 곳이 각자 정렬 규칙을 갖고 있던 것이 이 버그의 근본 원인이었다.
+- `UpsertItem`은 기존 항목과 정렬 키가 같으면 제거 후 재삽입 대신 제자리 교체한다(방어. 지금은 이 분기로 들어오는 호출자가 없지만,
+  나중에 진행률 배지 같은 파생 표시가 생겨 `UpsertItem`을 다시 부르게 되면 살아난다).
+- **`GetIncomplete()`에 `ORDER BY`는 넣지 않았다**: 정렬 키에 `Id`가 들어가 전순서가 되면서 DB 스캔 순서에 의존하지 않게 되어 불필요해졌다.
+
+정렬 규칙과 그렇게 정한 근거(마감일을 날짜 단위로 자르는 이유, 긴급 우선을 택한 이유)는 `docs/todo-design.md`의 "목록 정렬 규칙"에 적었다.
+
+**실행 확인 상태**:
+- [x] **(2) 같은 날 마감 항목의 사분면 순서** — 사용자 확인 완료(2026-09-20). 2026-09-21 마감이 같은 두 항목에서 "병원"(중요+긴급)이
+  "한강공원 나들이"(중요)보다 위에 오고, 마감일 없는 항목("햄스터", "햄스터3")이 그 아래에 붙는 것까지 화면으로 확인.
+- [ ] (1) 체크리스트를 체크해도 자리가 그대로인지
+- [ ] (3) 재시작 후 순서가 같은지
+- [ ] (4) 반복 항목을 완료하면 다음 회차 날짜의 제자리로 가는지
+
+### 17-1. 정렬 기준(마감일 우선 / 중요도 우선)을 설정에서 고르게 하는 안 — 아이디어만, 구현 안 함 (2026-09-20)
+
+**배경**: 지금은 마감일(날짜)이 무조건 상위 기준이고 사분면은 같은 날 안에서만 작동한다. 의도대로 동작하는 것은 확인됐지만,
+"마감이 가까운 것부터 보고 싶다"와 "중요한 일부터 보고 싶다"는 **사람마다 갈리는 취향**이라 한쪽으로 고정할 근거가 약하다는 사용자 지적.
+
+**아이디어**: 설정창에서 정렬 기준을 고르게 한다 — (a) **마감일 우선**(현재 동작: 마감일 → 사분면 → 생성순),
+(b) **중요도 우선**(사분면 → 마감일 → 생성순. 딱지가 붙은 항목이 마감일과 무관하게 목록 최상단으로 올라온다).
+
+**구현이 쉬운 이유**: 정렬 규칙이 `TodoSortKey` 한 곳에 모여 있어서, 키를 만들 때 비교 순서만 바꾸면 된다(#17 수정의 부수 효과).
+
+**지금 하지 않는 이유**: 사용자 판단 — 더 급한 오류(#16, #18 등)를 먼저 처리하기로 함. 기능의 필요성 자체는 인정됨.
+
+**할 때 같이 볼 것**:
+- `AppSettings`에 정렬 기준 필드 추가 + 설정창 UI. #18의 설정창 손질과 같은 자리에서 하면 효율적이다.
+- 설정이 바뀌면 이미 떠 있는 목록을 다시 정렬해야 한다(`MainViewModel.LoadItems` 재호출 경로 필요 — 지금은 설정 변경이 목록에 영향을 주지 않는다).
+- 사분면 내부 순서(긴급 우선 / 중요 우선)도 함께 고르게 할지, 코드 상수로 고정해 둘지.
+
+## 18. LLM 실패를 거의 다 "인터넷 문제"로 안내함 + 설정창 모델명 입력 (2026-09-20 재점검)
+
+**어디**: `App.Core/Infrastructure/Llm/GeminiChatCompletionAdapter.cs`와 `OpenAiChatCompletionAdapter.cs`의 상태 코드 분류,
+`App.UI/Views/SettingsWindow.axaml.cs`의 `OnSaveClick`.
+
+**증상 (분류)**: 인증 실패로 알아보는 것 외의 **모든** HTTP 오류가 `LlmFailure.NetworkError`로 뭉뚱그려지고, 캐릭터는 "인터넷이 잘 안 되는 것 같아..."라고 말한다.
+실제로 그 대사가 나오는 경우:
+- 모델명 오타 또는 단종 → 404. `AppSettings.GeminiModel` 주석에 이미 같은 사고 기록이 있다(버전 고정 이름이 조용히 단종되어 404).
+- 쿼터/요금 한도 초과, 분당 요청 제한 → 429.
+- 제공자 장애 → 5xx.
+
+OpenAI 어댑터는 401만 인증 실패로 보므로 403(권한/지역 차단)도 "인터넷"이 된다.
+
+**증상 (모델명 입력)**: `OnSaveClick`은 모델명을 `Trim()`하지 않는다. 붙여넣기로 앞뒤 공백이 딸려오면 그대로 저장되고, 요청 URL에 `%20`으로 인코딩되어 들어가
+404가 난다(실측 확인) → 위 분류를 타고 "인터넷이 잘 안 되는 것 같아..."로 끝나서 화면에 원인을 찾을 단서가 없다. API 키는 같은 함수에서 이미 `Trim()`한다(C3-c) —
+모델명만 빠졌다. 또 모델명이 비어 있으면 `return`으로 조용히 끝나기 때문에 **캐릭터 표시/배율/팩 선택까지 함께 저장되지 않고** 창도 닫히지 않는다.
+사용자에게는 "저장 버튼이 안 먹는다"로 보인다.
+
+**개선 방향**: 404/429/403을 별도 `LlmFailure` 값으로 나누고 폴백 대사를 구분한다. 최소한 `app.log`의 `[llm]`에 상태 코드만이라도 남긴다
+(키가 들어갈 수 있는 예외는 계속 로깅하지 않는다 — `docs/stability-hardening.md`). 모델명은 저장 전에 `Trim()`하고, 비어 있으면 조용히 무시하지 말고 설정창에 사유를 표시한다.
+
+## 19. 반복 항목의 다음 마감일 계산 — 설계 결정이 필요한 3가지 (2026-09-20 재점검)
+
+**어디**: `App.Core/Domain/Entities/RecurrenceRule.cs`의 `ComputeNext`, `App.Core/Domain/Services/TodoService.cs`의 `CompleteTodo`,
+`App.UI/Views/MainWindow.axaml`의 `DatePicker`.
+
+**(1) 매달 반복이 말일에서 영구히 밀린다**: `Monthly`은 `currentDueDate.AddMonths(Interval)`인데 기준이 "원래 반복 기준일"이 아니라 "직전 회차의 마감일"이다.
+1/31 → 2/28 → **3/28** → 4/28...로 한 번 내려간 날짜가 복귀하지 않는다. `docs/todo-design.md`는 ".NET이 말일 초과를 그 달의 마지막 날로 내려준다"까지만 적었고
+이 누적 효과는 다루지 않았다. "매달 말일"이라는 의도를 유지하려면 기준일(anchor)을 따로 보관해야 한다.
+
+**(2) 늦게 완료하면 다음 회차도 과거다**: `ComputeNext(item.DueDate)`는 "지금"이 아니라 옛 마감일을 기준으로 딱 한 번 굴린다. 매일 반복을 5일 밀렸다가 완료하면
+다음 마감은 **어제**다. 따라잡으려면 사용자가 다섯 번 체크해야 하고 그때마다 `CompletionLog` 행과 `CompletionCount`가 쌓여 "실제로 한 일"과 어긋난다.
+선택지: (a) 현재 동작 유지(빠짐없이 이력이 남음), (b) `now`를 넘어설 때까지 굴리고 건너뛴 회차는 기록하지 않음, (c) 완료 시점을 새 기준으로 삼음.
+셋 다 "빠뜨린 일을 어떻게 볼 것인가"라는 제품 결정이라 코드만으로는 정할 수 없다.
+
+**(3) 마감 시각이 항상 00:00이다**: `DatePicker`는 날짜만 받고 `NewDueDate?.DateTime`이 그대로 들어가므로 마감은 그날 자정이다. #15의 알림을 연결하는 순간
+"오늘까지 할 일"이 하루 종일 마감 초과로 판정된다. 시각 입력을 추가하거나, 날짜만 있는 마감은 그날 23:59로 해석하는 규칙이 필요하다.
+
+**언제 다룰까**: 반복 설정 UI가 직관적이지 않다는 사용자 지적과 같은 자리에서 함께 정하는 게 좋다. (1)과 (3)은 스키마와 입력 폼까지 건드릴 수 있다.
+
+## 20. 메모 창을 최소화하면 저장된 위치가 오염될 수 있음 (2026-09-20 재점검, **실행 확인 필요**)
+
+**어디**: `App.UI/Views/MemoWindow.axaml.cs`의 `SaveGeometryNow`, `App.UI/Views/MainWindow.axaml.cs`의 `OnClosing`(종료 직전 `FlushPendingSave`).
+
+**증상(코드 읽기 기준, 재현 안 해봄)**: Windows는 최소화된 창의 위치를 `(-32000, -32000)`으로 보고한다. `WindowPlacementTracker.SaveNow`는 이걸 알고
+`WindowState != Normal`이면 저장을 건너뛰는데(메인/캐릭터 창), **메모 창은 그 트래커를 쓰지 않고 자체 저장 경로를 갖고 있으며 같은 가드가 없다.**
+메모 창은 `ShowInTaskbar`를 끄지 않아 작업표시줄에 뜨고 최소화될 수 있다(Win+M 등). 최소화 → `PositionChanged` → 디바운스 → `UpdatePosition(-32000, -32000)`이 DB에 들어간다.
+다음 실행 때 `MemoWindow` 생성자의 `ScreenPlacement.RestoreOrClamp`가 화면 안으로 끌어오므로 메모가 사라지지는 않지만, **사용자가 놓아둔 자리를 잃고 화면 구석으로 모인다.**
+
+**확인 방법**: 메모를 여러 개 띄우고 Win+M → 1초 이상 기다림(디바운스 500ms) → 앱 재시작 → 위치가 유지되는지 본다.
+
+**개선 방향**: `SaveGeometryNow`에 `WindowState != WindowState.Normal`이면 건너뛰는 가드를 넣는다(`WindowPlacementTracker.SaveNow`와 같은 규칙).
+근본적으로는 메모 창도 `WindowPlacementTracker`를 쓰게 통합하는 쪽이 맞지만, 메모는 위치를 `WindowStateStore`가 아니라 SQLite에 저장하므로 저장소를 추상화해야 한다.
+
+## 21. 설정/창 위치 파일이 IO 오류에 무방비하고 저장이 원자적이지 않음 (2026-09-20 재점검)
+
+**어디**: `App.Core/Infrastructure/FileSystem/AppSettingsStore.cs`, `WindowStateStore.cs`.
+
+**증상**:
+- 둘 다 `catch (JsonException)`만 있다. 파일이 **손상된** 경우는 기본값으로 복구하지만, **읽지 못하는** 경우(`IOException` — 백신/동기화 도구가 잠깐 잡고 있는 등,
+  `UnauthorizedAccessException`)는 예외가 그대로 올라간다. 두 호출 모두 `MainWindow` 생성자 경로라 기동 실패로 이어진다.
+- `WindowStateStore.EnsureLoaded`는 읽기 **전에** `_cache`를 빈 딕셔너리로 채운다. 위 예외를 호출부가 삼키면 이후 호출은 "저장된 위치가 하나도 없음"을 반환하고,
+  다음 `Save`가 파일을 그 상태로 덮어써 **다른 창들의 저장 위치까지 지운다.**
+- 저장이 `File.WriteAllText` 단독이라 원자적이지 않다. 쓰는 도중 프로세스가 죽으면 잘린 JSON이 남고, 다음 기동에서 설정이 조용히 기본값으로 돌아간다.
+
+**왜 지금은 안 급한가**: 로컬 단일 사용자 환경에서 자주 만날 상황은 아니다. 다만 증상이 "설정이 저절로 초기화됨"이라 나중에 원인을 추적하기 어렵다.
+
+**개선 방향**: 두 저장소의 catch를 `IOException`/`UnauthorizedAccessException`까지 넓히고(읽기 실패는 기본값 + `AppLog` 기록), `EnsureLoaded`는 읽기에 성공한 뒤에
+캐시를 확정한다. 저장은 임시 파일에 쓴 뒤 `File.Move(..., overwrite: true)`로 교체한다(`AppLog.RotateIfTooLarge`가 이미 쓰는 방식).
+
+## 22. 단일 인스턴스 뮤텍스는 세션 단위인데 IPC 파이프는 머신 전역 (2026-09-20 재점검)
+
+**어디**: `App.Windows/SingleInstanceGuard.cs`의 `MutexName`(`Local\` 접두사), `App.Core/Infrastructure/Ipc/CharacterIpcContract.cs`의 `PipeName`.
+
+**증상**: 뮤텍스는 `Local\`이라 로그인 세션마다 따로 잡히지만(의도된 것 — 주석 참고) 명명 파이프 이름에는 그런 구분이 없어 머신 전역이다.
+빠른 사용자 전환이나 원격 데스크톱으로 **두 사용자가 동시에 로그인해 각자 앱을 켜면**:
+- 두 번째 세션의 앱은 단일 인스턴스 검사를 통과해 정상 기동하지만, IPC 서버는 파이프(`maxNumberOfServerInstances: 1`)를 잡지 못해 계속 실패하고
+  백오프 루프가 `app.log`에 `[ipc]`를 영원히 남긴다(C1-d 덕분에 CPU를 태우지는 않는다).
+- `App.Mcp`가 보내는 `say`/`setExpression`이 **어느 세션의 캐릭터에게 갈지 보장되지 않는다**(먼저 파이프를 잡은 쪽).
+
+**왜 지금은 안 급한가**: 개인 PC 단독 사용이 전제다.
+
+**개선 방향**: 파이프 이름에도 세션 구분을 넣는다(예: 세션 ID나 사용자 SID를 접미사로). 계약이 바뀌므로 `App.Mcp`와 `App.UI`가 같은 규칙으로 이름을 만들어야 한다.
+
+## 23. 사소한 것들 (2026-09-20 재점검)
+
+- **`CharacterOverlayController`의 클래스 주석이 엉뚱한 곳에 붙어 있다**: `App.UI/Services/CharacterOverlayController.cs` 위쪽의 컨트롤러 설명 `<summary>`가
+  바로 아래 `PackApplyResult` 레코드에 붙어 있다(`<summary>`가 두 개 연속이라 IDE/문서 생성기에는 레코드 설명으로 보인다). 컨트롤러 `class` 선언 위로 옮기면 된다.
+- **`TodoService.CompleteTodo`의 쓰기 순서**: `_completionLog.Append`가 `_repository.Save(item)`보다 먼저이고 둘은 별도 커넥션이라 트랜잭션을 공유하지 않는다.
+  `Save`가 실패하면 완료 로그만 남고 항목은 미완료로 남는다. 지금은 로컬 SQLite라 실패가 드물다.

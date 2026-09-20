@@ -3,6 +3,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
 using App.Core.Domain.Entities;
+using App.Core.Domain.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
@@ -25,6 +26,9 @@ public partial class TodoItemViewModel : ViewModelBase
     public bool HasCategory => CategoryName is not null;
     public ObservableCollection<ChecklistItemViewModel> ChecklistItems { get; }
 
+    /// <summary>목록에서의 정렬 위치. 화면에 표시하지 않고 MainViewModel이 삽입 위치를 정할 때만 쓴다.</summary>
+    public TodoSortKey SortKey { get; }
+
     [ObservableProperty]
     private bool _isCompleted;
 
@@ -35,6 +39,7 @@ public partial class TodoItemViewModel : ViewModelBase
         _onComplete = onComplete;
         _onDelete = onDelete;
         Id = item.Id;
+        SortKey = TodoSortKey.From(item);
         Title = item.Title;
         DueDate = item.DueDate;
         IsImportant = item.IsImportant;
