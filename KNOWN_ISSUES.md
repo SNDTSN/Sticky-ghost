@@ -631,9 +631,10 @@ OS의 IME 상태가 아니라 Avalonia 내부의 창 포인터 하나가 문제�
 **남은 위험**: Avalonia 내부 구현(전역 싱글턴 + `WM_INPUTLANGCHANGE` 처리)에 기대는 보정이므로, Avalonia를 12.x로 올릴 때 이 두 가지가
 그대로인지 확인해야 한다. 12.1.2 시점에는 같은 구조다.
 
-**업스트림 제보 거리**: `WindowImpl.cs:156`의 `this is not PopupImpl` 조건에 "활성화 없이 띄우는 창"도 포함시키면 되는 한 줄짜리 수정이다.
-아래 최소 재현과 함께 이슈를 낼 수 있다.
-### Avalonia 제보용 최소 재현 (2026-09-22 실측으로 수정)
+**업스트림 제보 완료(2026-09-22)**: [AvaloniaUI/Avalonia#22273](https://github.com/AvaloniaUI/Avalonia/issues/22273) — `bug` 라벨, Open.
+제안한 수정은 `WindowImpl.cs:159`의 `this is not PopupImpl` 조건에 "활성화 없이 띄우는 창"도 포함시키는 한 줄짜리다.
+**이게 반영된 Avalonia로 올라가면 `RestoreImeBinding()` 보정을 걷어낼 수 있다** — 업그레이드할 때 이 이슈 상태를 먼저 확인할 것.
+### Avalonia 제보용 최소 재현 (2026-09-22 실측으로 수정 → #22273으로 제보됨)
 
 **⚠ 순서가 전부다. 두 번째 창은 메인 창이 "활성화된 뒤에" `new` 해야 한다.**
 메인 창이 표시되기 전에 두 창을 미리 만들어 두면, 메인 창이 활성화되는 순간 `WM_ACTIVATE`가 IME 바인딩을 되돌려줘서
