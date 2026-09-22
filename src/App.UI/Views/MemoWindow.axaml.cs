@@ -72,14 +72,20 @@ public partial class MemoWindow : Window
         _saveTimer.Start();
     }
 
+    // 최소화된 창의 Position은 Windows에서 (-32000,-32000)이고, 최대화 상태의 크기도 사용자가 정한 값이 아니다.
+    // WindowPlacementTracker.SaveNow와 같은 규칙 — 메모 창만 자체 저장 경로를 갖고 있어 이 가드가 빠져 있었다.
     private void SaveGeometryNow()
     {
         _saveTimer.Stop();
+        if (WindowState != WindowState.Normal)
+            return;
+
         _viewModel?.UpdatePosition(Position.X, Position.Y);
         _viewModel?.UpdateSize(Width, Height);
     }
 
-    /// <summary>메인 창 종료 등으로 강제 종료되기 전에, 디바운스 중이던 위치/크기/내용 저장을 즉시 실행한다.</summary>
+    /// <summary>메인 창 종료 등으로 강제 종료되기 전에, 디바운스 중이던 위치/크기/내용 저장을 즉시 실행한다.
+    /// 최소화 상태로 종료하면 위치/크기 저장만 건너뛰고 내용은 그대로 저장된다.</summary>
     public void FlushPendingSave()
     {
         SaveGeometryNow();

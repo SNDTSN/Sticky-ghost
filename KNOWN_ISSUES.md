@@ -390,7 +390,7 @@ OpenAI 어댑터는 401만 인증 실패로 보므로 403(권한/지역 차단)�
 
 **언제 다룰까**: 반복 설정 UI가 직관적이지 않다는 사용자 지적과 같은 자리에서 함께 정하는 게 좋다. (1)과 (3)은 스키마와 입력 폼까지 건드릴 수 있다.
 
-## 20. 메모 창을 최소화하면 저장된 위치가 오염됨 (2026-09-20 재점검, **재현 확인됨 2026-09-21**)
+## 20. ~~메모 창을 최소화하면 저장된 위치가 오염됨~~ — 증상 해결됨 (2026-09-22, 근본 통합은 20-1로 남김)
 
 **어디**: `App.UI/Views/MemoWindow.axaml.cs`의 `SaveGeometryNow`, `App.UI/Views/MainWindow.axaml.cs`의 `OnClosing`(종료 직전 `FlushPendingSave`).
 
@@ -403,8 +403,26 @@ OpenAI 어댑터는 401만 인증 실패로 보므로 403(권한/지역 차단)�
 코드 읽기로 예측했던 경로 그대로다 — 최소화된 창의 위치 `(-32000, -32000)`이 DB에 저장되고, 복원할 때 `ScreenPlacement.RestoreOrClamp`가
 그 값을 작업 영역 안으로 끌어오면서 좌상단에 붙는다. 앱 종료뿐 아니라 **최소화 상태를 500ms(디바운스)만 유지해도** 같은 값이 저장된다.
 
-**개선 방향**: `SaveGeometryNow`에 `WindowState != WindowState.Normal`이면 건너뛰는 가드를 넣는다(`WindowPlacementTracker.SaveNow`와 같은 규칙).
-근본적으로는 메모 창도 `WindowPlacementTracker`를 쓰게 통합하는 쪽이 맞지만, 메모는 위치를 `WindowStateStore`가 아니라 SQLite에 저장하므로 저장소를 추상화해야 한다.
+**조치 (2026-09-22)**: `SaveGeometryNow`에 `WindowState != WindowState.Normal`이면 건너뛰는 가드를 넣었다(`WindowPlacementTracker.SaveNow`와 같은 규칙).
+내용 저장(`FlushContentSave`)은 `FlushPendingSave`에서 따로 불리므로, 최소화 상태로 종료해도 **내용은 저장되고 위치/크기만 건너뛴다**.
+
+### 20-1. 창 위치 저장 경로가 두 벌인 문제 — 미해결 (2026-09-22 분리)
+
+위 가드는 `a38da9b`에서 `WindowPlacementTracker`를 만들며 알아낸 규칙을 메모 경로에 뒤늦게 역수출한 것이고, **중복 자체는 그대로 남아 있다.**
+
+**경위**: `b0b4697`에서 메모 위젯이 들어올 때는 위치를 기억하는 창이 메모뿐이라 코드비하인드에 직접 구현했다(저장처도 `MemoNote` 컬럼).
+이후 `17bac79`(강제 종료 시 유실), `6a2fa0b`(타이머 미정지로 창이 GC 안 됨)를 메모가 먼저 겪고 고쳤는데,
+`a38da9b`에서 캐릭터/메인 창용으로 `WindowPlacementTracker`를 만들며 **같은 두 문제를 독립적으로 다시 풀었다**(`Closing` 즉시 저장, `Closed`→`Dispose`).
+그 커밋에서 새로 알아낸 최소화 가드만 메모에 반영되지 않아 #20이 됐다. 두 파일이 서로를 주석으로 가리키고 있는 것이 그 표식이다.
+
+**통합안**: 트래커가 `WindowStateStore`를 구체 타입으로 물고 있는 것이 유일한 걸림돌이므로 `IWindowPlacementStore`(`Load`/`Save`, 키는 어댑터가 보유)로 추상화하고,
+메모용 어댑터를 `MemoNote` + `IMemoRepository`로 만든다. DB 스키마 변경은 불필요(`PositionX`가 REAL).
+
+**함정 3가지**:
+1. `SqliteMemoRepository.Save`는 UPSERT라, 트래커가 `Closing`에 저장을 걸면 **삭제 직후 닫히는 메모가 INSERT로 부활한다.**
+   `IMemoRepository.UpdateGeometry(Guid, WindowPlacement)`(UPDATE만, 행 없으면 no-op)를 추가해 막는다. 덤으로 위치 저장이 `Content`/`UpdatedAt`을 건드리지 않게 된다.
+2. 트래커의 `Restore`는 저장값이 화면 밖이면 기본 위치로 보내지만 메모는 가장 가까운 화면 안으로 clamp해야 한다 → `Restore`에 복원 정책 인자가 필요.
+3. 트래커의 `LimitSizeToWorkArea`가 메모에 새로 적용된다(개선이지만 기존 동작 변화).
 
 ## 21. 설정/창 위치 파일이 IO 오류에 무방비하고 저장이 원자적이지 않음 (2026-09-20 재점검)
 
