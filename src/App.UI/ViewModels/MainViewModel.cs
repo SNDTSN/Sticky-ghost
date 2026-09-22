@@ -40,11 +40,14 @@ public partial class MainViewModel : ViewModelBase
 
     public ObservableCollection<string> NewChecklistItems { get; } = new();
 
-    public IReadOnlyList<RecurrenceTypeOption> RecurrenceTypeOptions { get; } = new[]
+    // "3 일 마다"처럼 숫자 뒤에 붙는 단위로 읽히게 한다 — 예전에는 "매일" + "간격 3"으로 갈라져 있어
+    // 3일에 한 번 반복하는 할 일을 만들려면 "매일, 간격 3"을 조합해야 했다.
+    public IReadOnlyList<RecurrenceUnitOption> RecurrenceUnitOptions { get; } = new[]
     {
-        new RecurrenceTypeOption(RecurrenceType.Daily, "매일"),
-        new RecurrenceTypeOption(RecurrenceType.Weekly, "매주"),
-        new RecurrenceTypeOption(RecurrenceType.Monthly, "매달"),
+        new RecurrenceUnitOption(RecurrenceUnit.Day, "일"),
+        new RecurrenceUnitOption(RecurrenceUnit.Week, "주"),
+        new RecurrenceUnitOption(RecurrenceUnit.Month, "달"),
+        new RecurrenceUnitOption(RecurrenceUnit.Weekday, "요일"),
     };
 
     public ObservableCollection<DayOfWeekOptionViewModel> RecurrenceDayOptions { get; } = new()
@@ -62,7 +65,7 @@ public partial class MainViewModel : ViewModelBase
     private bool _newIsRecurring;
 
     [ObservableProperty]
-    private RecurrenceTypeOption _selectedRecurrenceType;
+    private RecurrenceUnitOption _selectedRecurrenceUnit;
 
     [ObservableProperty]
     private int _newRecurrenceInterval = 1;
@@ -70,11 +73,16 @@ public partial class MainViewModel : ViewModelBase
     [ObservableProperty]
     private DateTimeOffset? _newRecurrenceEndDate;
 
+    /// <summary>숫자 칸과 "마다"의 표시 여부. 요일 지정에서는 간격이 의미가 없어 숨긴다.</summary>
     [ObservableProperty]
-    private bool _isWeeklyRecurrenceSelected;
+    private bool _isIntervalVisible = true;
 
     [ObservableProperty]
-    private bool _canEditRecurrenceDays;
+    private bool _isWeekdayPickerVisible;
+
+    /// <summary>목록에 뜰 문구를 입력 중에 그대로 보여준다(목록과 같은 포맷터를 쓴다).</summary>
+    [ObservableProperty]
+    private string? _recurrencePreview;
 
     [ObservableProperty]
     private string? _errorMessage;
@@ -97,7 +105,14 @@ public partial class MainViewModel : ViewModelBase
         _todoRepository = todoRepository;
         _categoryRepository = categoryRepository;
         _todoService = todoService;
-        _selectedRecurrenceType = RecurrenceTypeOptions[0];
+        _selectedRecurrenceUnit = RecurrenceUnitOptions[0];
+
+        // 요일 체크박스는 별도 뷰모델이라 여기서 구독해야 미리보기가 따라 갱신된다.
+        // RecurrenceDayOptions는 이 뷰모델과 수명이 같아 해제할 필요가 없다.
+        foreach (var day in RecurrenceDayOptions)
+            day.PropertyChanged += (_, _) => UpdateRecurrencePreview();
+
+        UpdateRecurrenceFlags();
         LoadCategories();
         LoadItems();
     }
@@ -151,14 +166,50 @@ public partial class MainViewModel : ViewModelBase
     [RelayCommand]
     private void RemoveChecklistItemFromDraft(string text) => NewChecklistItems.Remove(text);
 
-    partial void OnSelectedRecurrenceTypeChanged(RecurrenceTypeOption value) => UpdateRecurrenceFlags();
+    partial void OnSelectedRecurrenceUnitChanged(RecurrenceUnitOption value) => UpdateRecurrenceFlags();
 
-    partial void OnNewRecurrenceIntervalChanged(int value) => UpdateRecurrenceFlags();
+    partial void OnNewRecurrenceIntervalChanged(int value) => UpdateRecurrencePreview();
+
+    partial void OnNewIsRecurringChanged(bool value) => UpdateRecurrencePreview();
+
+    partial void OnNewRecurrenceEndDateChanged(DateTimeOffset? value) => UpdateRecurrencePreview();
 
     private void UpdateRecurrenceFlags()
     {
-        IsWeeklyRecurrenceSelected = SelectedRecurrenceType.Value == RecurrenceType.Weekly;
-        CanEditRecurrenceDays = IsWeeklyRecurrenceSelected && NewRecurrenceInterval == 1;
+        var isWeekday = SelectedRecurrenceUnit.Unit == RecurrenceUnit.Weekday;
+        IsIntervalVisible = !isWeekday;
+        IsWeekdayPickerVisible = isWeekday;
+        UpdateRecurrencePreview();
+    }
+
+    // 입력이 아직 규칙으로 성립하지 않으면(요일 미선택 등) 미리보기를 비운다 — 추가를 누를 때 사유를 안내한다.
+    private void UpdateRecurrencePreview() =>
+        RecurrencePreview = NewIsRecurring ? RecurrenceSummaryFormatter.Format(TryBuildRecurrence()) : null;
+
+    /// <summary>현재 입력을 도메인 규칙으로 바꾼다. 성립하지 않으면 null.</summary>
+    private RecurrenceRule? TryBuildRecurrence()
+    {
+        var endDate = NewRecurrenceEndDate?.DateTime;
+
+        if (SelectedRecurrenceUnit.Unit != RecurrenceUnit.Weekday)
+        {
+            var type = SelectedRecurrenceUnit.Unit switch
+            {
+                RecurrenceUnit.Day => RecurrenceType.Daily,
+                RecurrenceUnit.Week => RecurrenceType.Weekly,
+                _ => RecurrenceType.Monthly,
+            };
+
+            // NumericUpDown을 비우면 0이 들어올 수 있고 RecurrenceRule은 1 미만을 거부한다.
+            return NewRecurrenceInterval >= 1 ? new RecurrenceRule(type, NewRecurrenceInterval, null, endDate) : null;
+        }
+
+        var selectedDays = RecurrenceDayOptions.Where(d => d.IsSelected).Select(d => d.Day).ToHashSet();
+        if (selectedDays.Count == 0)
+            return null;
+
+        // 요일을 지정하면 도메인이 Interval을 무시하므로 1로 고정한다.
+        return new RecurrenceRule(RecurrenceType.Weekly, 1, selectedDays, endDate);
     }
 
     // 변경된 항목 하나만 갱신한다. LoadItems()처럼 GetIncomplete() 전체를 다시 쿼리하고
@@ -239,18 +290,15 @@ public partial class MainViewModel : ViewModelBase
                 return;
             }
 
-            IReadOnlySet<DayOfWeek>? daysOfWeek = null;
-            if (CanEditRecurrenceDays)
+            recurrence = TryBuildRecurrence();
+            if (recurrence is null)
             {
-                var selectedDays = RecurrenceDayOptions.Where(d => d.IsSelected).Select(d => d.Day).ToHashSet();
-                daysOfWeek = selectedDays.Count > 0 ? selectedDays : null;
+                // 요일 단위인데 아무 요일도 안 고르면 조용히 "매주"가 되어버리므로 사유를 알린다.
+                ErrorMessage = SelectedRecurrenceUnit.Unit == RecurrenceUnit.Weekday
+                    ? "반복할 요일을 하나 이상 선택해 주세요."
+                    : "반복 간격은 1 이상이어야 합니다.";
+                return;
             }
-
-            recurrence = new RecurrenceRule(
-                SelectedRecurrenceType.Value,
-                NewRecurrenceInterval,
-                daysOfWeek,
-                NewRecurrenceEndDate?.DateTime);
         }
 
         ErrorMessage = null;
@@ -271,7 +319,7 @@ public partial class MainViewModel : ViewModelBase
         NewChecklistItems.Clear();
         SelectedCategory = null;
         NewIsRecurring = false;
-        SelectedRecurrenceType = RecurrenceTypeOptions[0];
+        SelectedRecurrenceUnit = RecurrenceUnitOptions[0];
         NewRecurrenceInterval = 1;
         NewRecurrenceEndDate = null;
         foreach (var day in RecurrenceDayOptions)

@@ -71,24 +71,31 @@
                                     <Expander Header="반복 설정" IsExpanded="False">
                                         <StackPanel Spacing="8" Margin="0,8,0,0">
                                             <CheckBox Content="반복" IsChecked="{Binding NewIsRecurring}" />
-                                            <ComboBox ItemsSource="{Binding RecurrenceTypeOptions}"
-                                                      SelectedItem="{Binding SelectedRecurrenceType}"
-                                                      DisplayMemberBinding="{Binding Label}"
-                                                      IsEnabled="{Binding NewIsRecurring}"
-                                                      HorizontalAlignment="Stretch" />
-                                            <StackPanel Spacing="4">
-                                                <TextBlock Text="간격 (예: 2주마다 반복하려면 2)" FontSize="12" Foreground="Gray" />
+                                            <!-- "3 일 마다"로 읽히게 숫자와 단위를 한 줄에 둔다.
+                                                 요일 단위에서는 간격이 의미가 없어 숫자 칸과 "마다"가 사라진다. -->
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
                                                 <NumericUpDown Value="{Binding NewRecurrenceInterval}" Minimum="1"
                                                                IsEnabled="{Binding NewIsRecurring}"
-                                                               FormatString="0" />
+                                                               IsVisible="{Binding IsIntervalVisible}"
+                                                               FormatString="0" Width="110" />
+                                                <ComboBox ItemsSource="{Binding RecurrenceUnitOptions}"
+                                                          SelectedItem="{Binding SelectedRecurrenceUnit}"
+                                                          DisplayMemberBinding="{Binding Label}"
+                                                          IsEnabled="{Binding NewIsRecurring}"
+                                                          Width="86" />
+                                                <TextBlock Text="마다" VerticalAlignment="Center"
+                                                           IsVisible="{Binding IsIntervalVisible}" />
                                             </StackPanel>
+                                            <!-- 목록에 뜰 문구를 그대로 미리 보여준다(RecurrenceSummaryFormatter 공용). -->
+                                            <TextBlock Text="{Binding RecurrencePreview}" Foreground="SteelBlue"
+                                                       FontSize="12" TextWrapping="Wrap" />
                                             <StackPanel Spacing="4">
                                                 <TextBlock Text="반복 종료일" FontSize="12" Foreground="Gray" />
                                                 <DatePicker SelectedDate="{Binding NewRecurrenceEndDate}" IsEnabled="{Binding NewIsRecurring}" />
                                             </StackPanel>
 
-                                            <StackPanel Spacing="4" IsVisible="{Binding IsWeeklyRecurrenceSelected}">
-                                                <ItemsControl ItemsSource="{Binding RecurrenceDayOptions}" IsEnabled="{Binding CanEditRecurrenceDays}">
+                                            <StackPanel Spacing="4" IsVisible="{Binding IsWeekdayPickerVisible}">
+                                                <ItemsControl ItemsSource="{Binding RecurrenceDayOptions}" IsEnabled="{Binding NewIsRecurring}">
                                                     <ItemsControl.ItemsPanel>
                                                         <ItemsPanelTemplate>
                                                             <WrapPanel />
@@ -100,9 +107,6 @@
                                                         </DataTemplate>
                                                     </ItemsControl.ItemTemplate>
                                                 </ItemsControl>
-                                                <TextBlock Text="(요일 지정은 1주 간격에서만 가능)"
-                                                           IsVisible="{Binding !CanEditRecurrenceDays}"
-                                                           Foreground="Gray" FontSize="11" />
                                             </StackPanel>
                                         </StackPanel>
                                     </Expander>
