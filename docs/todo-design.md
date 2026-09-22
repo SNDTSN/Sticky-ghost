@@ -36,7 +36,7 @@ Entity Category
     SortOrder: int
 
 Value RecurrenceRule
-    Type: enum(Daily, Weekly, Monthly)
+    Type: enum(Daily, Weekly, Monthly, MonthlyLastDay)
     Interval: int                // N일/주/달마다
     DaysOfWeek: Set<DayOfWeek>?   // Weekly일 때만 사용
     EndDate: DateTime?            // null이면 무기한 반복
@@ -46,11 +46,50 @@ Value RecurrenceRule
 
 * Daily: `currentDueDate.AddDays(Interval)`
 * Monthly: `currentDueDate.AddMonths(Interval)` (.NET이 말일 초과를 자동으로 그 달의 마지막 날로 내려줌)
+* MonthlyLastDay: `AddMonths(Interval)` 한 뒤 **그 달의 마지막 날로 다시 맞춘다**(`AddDays(lastDay - d.Day)` — 마감 시각과 `DateTimeKind`를 보존하려고 `new DateTime(...)`을 쓰지 않는다)
 * Weekly:
   * `DaysOfWeek`가 없으면 `currentDueDate.AddDays(7 * Interval)`
   * `DaysOfWeek`가 있으면 현재 날짜 다음으로 오는 지정 요일을 순회로 찾음 (최대 7일 탐색)
 * **MVP 제한**: `DaysOfWeek`가 설정된 경우 `Interval`은 반드시 1 (생성자에서 검증, 위반 시 `ArgumentException`). "격주로 월/수/금" 같은 조합은 anchor 주 개념이 필요해서 실제 수요가 생기기 전까지는 지원하지 않음. 막히는 건 "여러 요일 동시 지정 + 2주 이상 간격" 조합뿐이고, "N주마다 요일 하나"는 `DaysOfWeek` 없이 `Interval`만으로 이미 가능.
 * `Recurrence != null`인데 `DueDate == null`인 상태를 막는 불변식은 `RecurrenceRule` 자체가 아니라 `TodoService.AddTodo`(다음 단계 작업)에서 검증하기로 함 — `ComputeNext`는 non-null `DateTime`만 받는다고 가정.
+
+### 매달 반복 — "같은 날"과 "말일"을 입력에서 고르게 한다 (확정, 2026-09-22)
+
+`Monthly`는 **직전 회차의 마감일**에 `AddMonths`를 하므로 1/31 → 2/28 → 3/28...로 한 번 내려간 날짜가 복귀하지 않는다.
+"매달 말일"이라는 의도를 지키려면 회차마다 말일을 다시 계산해야 하는데, 사용자가 31일을 고른 것이 "말일"을 뜻하는지
+"31일"을 뜻하는지는 코드가 추측할 수 없다. 그래서 **입력에서 직접 고르게** 했다(`RecurrenceType.MonthlyLastDay`).
+
+* 단위 ComboBox에서 '달'을 고르면 요일 피커와 같은 방식으로 라디오 두 개가 나타난다 — "마감일과 같은 날 (N일)" / "매달 말일".
+* `RecurrenceType`은 DB에 TEXT로 저장되므로 enum 값 추가에 **스키마 변경이 필요 없다**. 기존 행은 `Monthly`로 남는다.
+* "같은 날" 모드에 남는 밀림은 **막지 않고 경고로 알린다**(마감일이 29~31일일 때). 원래 일자를 따로 저장하지 않으므로
+  코드로는 복귀시킬 수 없고, 선택지를 명시적으로 만든 쪽을 택했다.
+* 반대 조합(말일 모드인데 마감일이 말일이 아님)도 경고한다 — 첫 회차만 마감일 그대로이고 다음 회차부터 말일이 된다.
+  사용자가 고른 마감일을 조용히 바꾸지 않기 위해 보정이 아니라 안내로 처리했다.
+
+### 지연 완료 — 다음 회차는 완료 시점을 넘어선 첫 회차 (확정, 2026-09-22)
+
+`ComputeNext`를 옛 마감일 기준으로 한 번만 굴리면 매일 반복을 5일 밀렸다가 완료했을 때 다음 마감이 **어제**가 된다.
+따라잡으려고 사용자가 다섯 번 체크하게 만들면 `CompletionLog`와 `CompletionCount`가 "실제로 한 일"과 어긋난다.
+
+**`RecurrenceRule.ComputeNextAfter(currentDueDate, now)`**: `now`를 넘어설 때까지 회차를 굴려 첫 미래 회차를 돌려준다.
+건너뛴 회차는 기록하지 않는다(완료 이력은 사용자가 실제로 누른 만큼만 쌓인다). 종료일을 지나면 `null`을 돌려주고,
+호출부(`TodoService.CompleteTodo`)는 그 회차를 마지막으로 항목을 완료 상태로 남긴다.
+
+마감이 그날 23:59:59라서 "오늘 마감"은 오늘 안에 완료하면 아직 미래다 — 즉 5일 밀린 매일 반복을 오늘 완료하면
+다음 마감은 내일이 아니라 **오늘**이 된다(2026-09-22 결정). 내일로 보내려면 `next > now`를 `next.Date > now.Date`로 바꾸면 된다.
+
+### 마감 시각 — 날짜만 고른 마감은 그날 23:59:59 (확정, 2026-09-22)
+
+`DatePicker`는 날짜만 받으므로 마감이 그날 00:00이었고, 그러면 "오늘까지 할 일"이 하루 종일 마감 초과로 판정된다.
+`App.Core/Domain/Services/DueDateRule.FromDateOnly`가 그날 끝(23:59:59)으로 맞춘다.
+
+* 정규화는 **입력 경로**(`MainViewModel`)에서 한다. 도메인에서 00:00을 보고 추측하면 나중에 시각 입력이 생겼을 때
+  정말로 자정이 마감인 항목을 조용히 밀어버린다.
+* **반복 종료일에도 같은 규칙을 적용한다.** 마감만 23:59:59가 되면 `ComputeNextAfter`의 종료일 비교에서 마지막 회차가
+  하루 먼저 잘린다. 종료일 판정 자체도 `candidate.Date > EndDate.Date`로 날짜 단위 비교를 해서,
+  2026-09-22 이전에 만들어져 종료일이 00:00으로 저장된 행까지 안전하게 다룬다.
+* 이미 저장된 00:00 마감 행은 손대지 않는다 — 표시(`yyyy-MM-dd`)·정렬(날짜 단위)에 영향이 없고,
+  SQLite TEXT 포맷에 의존하는 일괄 UPDATE가 더 위험하다.
 
 ### 중요도 — 아이젠하워 매트릭스
 
@@ -117,7 +156,7 @@ CREATE TABLE TodoItem (
     CompletedAt          TEXT,
 
     -- 반복 규칙 (없으면 전부 NULL)
-    RecurrenceType       TEXT,          -- 'Daily' | 'Weekly' | 'Monthly'
+    RecurrenceType       TEXT,          -- 'Daily' | 'Weekly' | 'Monthly' | 'MonthlyLastDay' (TEXT라 값 추가에 스키마 변경이 필요 없다)
     RecurrenceInterval   INTEGER,       -- N일/주/달마다
     RecurrenceDaysOfWeek INTEGER,       -- Weekly용 비트마스크. 순번(1,2,3..)이 아니라 요일마다 2의 거듭제곱을 배정해 OR로 합침: 월=1,화=2,수=4,목=8,금=16,토=32,일=64 (예: 월+수+금 = 1|4|16 = 21)
     RecurrenceEndDate    TEXT,          -- null이면 무기한
@@ -213,8 +252,8 @@ CheckDueSoon():
 4. **`Id`** — 같은 틱에 만들어진 항목까지 순서를 확정하기 위한 최종 기준(값 자체에 의미는 없다).
 
 **왜 마감일을 날짜 단위로 자르나**: 같은 날 마감인 항목들을 일부러 동률로 만들어야 2번(사분면)이 "그날 안에서 무엇부터"를 정하는
-역할을 할 수 있다. 지금은 입력이 `DatePicker`뿐이라 마감 시각이 항상 00:00이므로 시각을 봐도 결과가 같지만, 나중에 시각 입력이
-생기면(`KNOWN_ISSUES.md` #19-(3)) 동률이 깨져 사분면 정렬이 조용히 무력화된다. 그때를 대비해 처음부터 날짜로 자른다.
+역할을 할 수 있다. 마감 시각은 `DueDateRule.FromDateOnly`로 그날 23:59:59가 되므로(2026-09-22) 날짜만 고른 항목끼리는
+지금도 시각이 같지만, 나중에 시각 입력이 생기면 동률이 깨져 사분면 정렬이 조용히 무력화된다. 그때를 대비해 처음부터 날짜로 자른다.
 
 **왜 마감일이 사분면보다 위인가**: 중요/긴급은 사용자가 손으로 붙이는 딱지이고 마감일은 바깥에서 주어지는 사실이다.
 딱지를 최상위로 두면 "다음 주 마감인 중요한 일"이 "오늘 마감인 일" 위로 올라온다. 딱지는 **같은 날 안의 우선순위**를 정하는 역할로 한정했다.

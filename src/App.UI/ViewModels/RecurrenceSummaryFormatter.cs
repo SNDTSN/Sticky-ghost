@@ -29,6 +29,7 @@ public static class RecurrenceSummaryFormatter
             RecurrenceType.Daily => "일",
             RecurrenceType.Weekly => "주",
             RecurrenceType.Monthly => "달",
+            RecurrenceType.MonthlyLastDay => "달",
             _ => "?",
         };
 
@@ -37,6 +38,10 @@ public static class RecurrenceSummaryFormatter
         {
             var labels = DayOrder.Where(d => days.Contains(d.Day)).Select(d => d.Label);
             body = $"매주 {string.Join(",", labels)}";
+        }
+        else if (recurrence.Type == RecurrenceType.MonthlyLastDay)
+        {
+            body = recurrence.Interval == 1 ? "매달 말일" : $"{recurrence.Interval}달마다 말일";
         }
         else
         {

@@ -15,8 +15,8 @@ public readonly record struct TodoSortKey(DateTime DueDay, int Quadrant, DateTim
 {
     public static TodoSortKey From(TodoItem item) => new(
         // 마감일은 "날짜"까지만 본다 — 같은 날 항목들을 일부러 동률로 만들어 사분면이 그날 안의 순서를 정하게 한다.
-        // 지금은 마감 시각이 항상 00:00이라 시각을 봐도 결과가 같지만, 나중에 시각 입력이 생겨도
-        // (KNOWN_ISSUES #19-(3)) 사분면 정렬이 조용히 무력화되지 않게 하려고 처음부터 날짜 단위로 자른다.
+        // 마감 시각은 DueDateRule.FromDateOnly가 그날 23:59:59로 맞추므로 날짜만 고른 항목끼리는 시각도 같지만,
+        // 나중에 시각 입력이 생겨도 사분면 정렬이 조용히 무력화되지 않게 하려고 처음부터 날짜 단위로 자른다.
         // 마감일이 없는 항목은 맨 뒤로 보낸다.
         item.DueDate?.Date ?? DateTime.MaxValue,
         QuadrantOf(item),

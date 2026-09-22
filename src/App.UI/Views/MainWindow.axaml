@@ -86,9 +86,22 @@
                                                 <TextBlock Text="마다" VerticalAlignment="Center"
                                                            IsVisible="{Binding IsIntervalVisible}" />
                                             </StackPanel>
+                                            <!-- 달 단위는 "마감일과 같은 날"과 "매달 말일"이 갈린다 — 요일 피커와 같은 방식으로
+                                                 단위에 따라 나타나는 보조 입력으로 뒀다. -->
+                                            <StackPanel Spacing="2" IsVisible="{Binding IsMonthDayModeVisible}">
+                                                <RadioButton GroupName="MonthDayMode" Content="{Binding MonthSameDayLabel}"
+                                                             IsChecked="{Binding !NewRecurMonthEndMode}"
+                                                             IsEnabled="{Binding NewIsRecurring}" />
+                                                <RadioButton GroupName="MonthDayMode" Content="매달 말일"
+                                                             IsChecked="{Binding NewRecurMonthEndMode}"
+                                                             IsEnabled="{Binding NewIsRecurring}" />
+                                            </StackPanel>
                                             <!-- 목록에 뜰 문구를 그대로 미리 보여준다(RecurrenceSummaryFormatter 공용). -->
                                             <TextBlock Text="{Binding RecurrencePreview}" Foreground="SteelBlue"
                                                        FontSize="12" TextWrapping="Wrap" />
+                                            <!-- 의도와 어긋날 수 있는 조합의 안내. 입력을 막지는 않는다. -->
+                                            <TextBlock Text="{Binding RecurrenceWarning}" IsVisible="{Binding HasRecurrenceWarning}"
+                                                       Foreground="Gray" FontSize="11" TextWrapping="Wrap" />
                                             <StackPanel Spacing="4">
                                                 <TextBlock Text="반복 종료일" FontSize="12" Foreground="Gray" />
                                                 <DatePicker SelectedDate="{Binding NewRecurrenceEndDate}" IsEnabled="{Binding NewIsRecurring}" />

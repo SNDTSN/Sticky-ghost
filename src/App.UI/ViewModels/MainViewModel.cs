@@ -80,6 +80,27 @@ public partial class MainViewModel : ViewModelBase
     [ObservableProperty]
     private bool _isWeekdayPickerVisible;
 
+    /// <summary>"마감일과 같은 날 / 매달 말일" 라디오의 표시 여부. 단위가 '달'일 때만 의미가 있다.</summary>
+    [ObservableProperty]
+    private bool _isMonthDayModeVisible;
+
+    /// <summary>false면 마감일과 같은 일자에(Monthly), true면 매달 마지막 날에(MonthlyLastDay) 반복한다.</summary>
+    [ObservableProperty]
+    private bool _newRecurMonthEndMode;
+
+    /// <summary>"마감일과 같은 날 (31일)"처럼 실제 일자를 넣어 보여준다 — 무엇에 반복하는지 라벨만 보고 알 수 있게.</summary>
+    [ObservableProperty]
+    private string _monthSameDayLabel = "마감일과 같은 날";
+
+    /// <summary>반복 입력이 의도와 어긋날 수 있을 때의 안내. 막지 않고 알려주기만 한다.</summary>
+    [ObservableProperty]
+    private string? _recurrenceWarning;
+
+    [ObservableProperty]
+    private bool _hasRecurrenceWarning;
+
+    partial void OnRecurrenceWarningChanged(string? value) => HasRecurrenceWarning = !string.IsNullOrEmpty(value);
+
     /// <summary>목록에 뜰 문구를 입력 중에 그대로 보여준다(목록과 같은 포맷터를 쓴다).</summary>
     [ObservableProperty]
     private string? _recurrencePreview;
@@ -170,16 +191,52 @@ public partial class MainViewModel : ViewModelBase
 
     partial void OnNewRecurrenceIntervalChanged(int value) => UpdateRecurrencePreview();
 
-    partial void OnNewIsRecurringChanged(bool value) => UpdateRecurrencePreview();
+    // 경고 문구도 "반복" 체크 여부에 달려 있어 미리보기만 갱신하면 반복을 끈 뒤에도 경고가 남는다.
+    partial void OnNewIsRecurringChanged(bool value) => UpdateMonthDayMode();
 
     partial void OnNewRecurrenceEndDateChanged(DateTimeOffset? value) => UpdateRecurrencePreview();
+
+    // 라디오 라벨과 경고 문구에 마감일의 일자가 들어가므로 마감일이 바뀌면 같이 갱신해야 한다.
+    partial void OnNewDueDateChanged(DateTimeOffset? value) => UpdateMonthDayMode();
+
+    partial void OnNewRecurMonthEndModeChanged(bool value) => UpdateMonthDayMode();
 
     private void UpdateRecurrenceFlags()
     {
         var isWeekday = SelectedRecurrenceUnit.Unit == RecurrenceUnit.Weekday;
         IsIntervalVisible = !isWeekday;
         IsWeekdayPickerVisible = isWeekday;
+        IsMonthDayModeVisible = SelectedRecurrenceUnit.Unit == RecurrenceUnit.Month;
+        UpdateMonthDayMode();
+    }
+
+    private void UpdateMonthDayMode()
+    {
+        var day = NewDueDate?.Day;
+        MonthSameDayLabel = day is null ? "마감일과 같은 날" : $"마감일과 같은 날 ({day}일)";
+        RecurrenceWarning = BuildRecurrenceWarning();
         UpdateRecurrencePreview();
+    }
+
+    /// <summary>
+    /// 반복 입력이 사용자 의도와 어긋날 수 있는 두 조합을 안내한다. 입력을 막거나 조용히 고치지는 않는다.
+    /// </summary>
+    private string? BuildRecurrenceWarning()
+    {
+        if (!NewIsRecurring || SelectedRecurrenceUnit.Unit != RecurrenceUnit.Month || NewDueDate is not { } due)
+            return null;
+
+        // (1) 29~31일 마감 + "같은 날": 그 일자가 없는 달에서 한 번 내려가면 복귀하지 않는다(KNOWN_ISSUES #19-(1)).
+        //     "같은 날" 모드는 원래 일자를 따로 저장하지 않으므로 코드로는 되돌릴 수 없다 — 말일 모드를 권한다.
+        if (!NewRecurMonthEndMode && due.Day >= 29)
+            return $"{due.Day}일이 없는 달에는 그 달 마지막 날로 내려가고, 그 뒤로도 계속 그 날짜로 반복됩니다. " +
+                   "매달 마지막 날을 원하면 '매달 말일'을 고르세요.";
+
+        // (2) 말일 모드인데 마감일이 말일이 아니면 첫 회차만 어긋난다 — 사용자가 고른 마감일을 몰래 바꾸지 않고 알려준다.
+        if (NewRecurMonthEndMode && due.Day != DateTime.DaysInMonth(due.Year, due.Month))
+            return $"첫 회차는 마감일 그대로({due:yyyy-MM-dd})이고, 다음 회차부터 매달 말일입니다.";
+
+        return null;
     }
 
     // 입력이 아직 규칙으로 성립하지 않으면(요일 미선택 등) 미리보기를 비운다 — 추가를 누를 때 사유를 안내한다.
@@ -189,7 +246,9 @@ public partial class MainViewModel : ViewModelBase
     /// <summary>현재 입력을 도메인 규칙으로 바꾼다. 성립하지 않으면 null.</summary>
     private RecurrenceRule? TryBuildRecurrence()
     {
-        var endDate = NewRecurrenceEndDate?.DateTime;
+        // 종료일도 마감일과 같은 규칙으로 그날 끝까지로 해석한다 — 마감만 23:59:59가 되면
+        // ComputeNextAfter의 종료일 비교에서 마지막 회차가 하루 먼저 잘린다(KNOWN_ISSUES #19-(3)).
+        var endDate = NewRecurrenceEndDate is { } end ? DueDateRule.FromDateOnly(end.DateTime) : (DateTime?)null;
 
         if (SelectedRecurrenceUnit.Unit != RecurrenceUnit.Weekday)
         {
@@ -197,7 +256,8 @@ public partial class MainViewModel : ViewModelBase
             {
                 RecurrenceUnit.Day => RecurrenceType.Daily,
                 RecurrenceUnit.Week => RecurrenceType.Weekly,
-                _ => RecurrenceType.Monthly,
+                // 달 단위는 "마감일과 같은 날"과 "매달 말일"이 갈린다 — 의도를 코드가 추측할 수 없어 입력에서 고르게 했다.
+                _ => NewRecurMonthEndMode ? RecurrenceType.MonthlyLastDay : RecurrenceType.Monthly,
             };
 
             // NumericUpDown을 비우면 0이 들어올 수 있고 RecurrenceRule은 1 미만을 거부한다.
@@ -308,7 +368,8 @@ public partial class MainViewModel : ViewModelBase
             categoryId: SelectedCategory?.Id,
             NewIsImportant,
             NewIsUrgent,
-            NewDueDate?.DateTime,
+            // DatePicker는 날짜만 받으므로 그날 23:59:59로 해석한다 — 00:00이면 "오늘까지 할 일"이 종일 마감 초과가 된다.
+            NewDueDate is { } due ? DueDateRule.FromDateOnly(due.DateTime) : null,
             checklistTexts: NewChecklistItems.Count > 0 ? NewChecklistItems.ToList() : null,
             recurrence: recurrence);
 
@@ -321,6 +382,7 @@ public partial class MainViewModel : ViewModelBase
         NewIsRecurring = false;
         SelectedRecurrenceUnit = RecurrenceUnitOptions[0];
         NewRecurrenceInterval = 1;
+        NewRecurMonthEndMode = false;
         NewRecurrenceEndDate = null;
         foreach (var day in RecurrenceDayOptions)
             day.IsSelected = false;

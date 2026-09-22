@@ -87,14 +87,12 @@ public sealed class TodoService
 
         if (item.Recurrence is { } recurrence)
         {
-            var next = recurrence.ComputeNext(item.DueDate!.Value);
-            var recurrenceEnded = recurrence.EndDate is { } endDate && next > endDate;
-
-            // EndDate를 지났으면 이 회차를 마지막으로 더 굴리지 않고 완료 상태로 남겨둔다.
+            // 늦게 완료했으면 다음 마감이 과거가 되지 않게 now를 넘어설 때까지 굴린다(RecurrenceRule.ComputeNextAfter).
+            // null이면 EndDate를 지난 것 — 이 회차를 마지막으로 더 굴리지 않고 완료 상태로 남겨둔다.
             // Recurrence 필드 자체는 지우지 않음 (예전에 반복이었다는 이력 보존).
-            if (!recurrenceEnded)
+            if (recurrence.ComputeNextAfter(item.DueDate!.Value, now) is { } nextDueDate)
             {
-                item.DueDate = next;
+                item.DueDate = nextDueDate;
                 item.IsCompleted = false;
                 item.CompletedAt = null;
                 item.NotifiedDueSoon = false;
