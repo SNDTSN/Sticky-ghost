@@ -633,21 +633,30 @@ OS의 IME 상태가 아니라 Avalonia 내부의 창 포인터 하나가 문제�
 
 **업스트림 제보 거리**: `WindowImpl.cs:156`의 `this is not PopupImpl` 조건에 "활성화 없이 띄우는 창"도 포함시키면 되는 한 줄짜리 수정이다.
 아래 최소 재현과 함께 이슈를 낼 수 있다.
-### Avalonia 제보용 최소 재현
+### Avalonia 제보용 최소 재현 (2026-09-22 실측으로 수정)
+
+**⚠ 순서가 전부다. 두 번째 창은 메인 창이 "활성화된 뒤에" `new` 해야 한다.**
+메인 창이 표시되기 전에 두 창을 미리 만들어 두면, 메인 창이 활성화되는 순간 `WM_ACTIVATE`가 IME 바인딩을 되돌려줘서
+**증상이 안 나온다**. (2026-09-22에 이 함정 때문에 재현에 한 번 실패했다. 앞선 세션들이 블랙박스 실험만으로
+`ShowActivated="False"`를 원인으로 지목한 것도 이 때문일 가능성이 크다 — 실제 앱은 메인 창이 뜬 뒤에 캐릭터 창을 만든다.)
 
 ```csharp
-// 메인 창에 TextBox 하나. 아래 오버레이를 기동 시 함께 띄우면 메인 창의 한글 조합이 깨진다.
+// 메인 창에 TextBox 하나. 메인 창이 활성화된 뒤에 아래 오버레이를 만들면 메인 창의 한글 조합이 깨진다.
 // ShowActivated = true 로만 바꾸면 정상. Avalonia 11.3.22 / 12.1.2 양쪽에서 재현(Windows 11).
-var overlay = new Window
+main.Opened += (_, _) =>          // ← Opened는 활성화 뒤에 온다. 여기서 "만드는" 것이 핵심
 {
-    SystemDecorations = SystemDecorations.None,  // 무관 (있어도 재현)
-    Topmost = true,                              // 무관
-    ShowInTaskbar = false,                       // 무관
-    ShowActivated = false,                       // ← 이 창이 활성화되지 않아 메인 창이 IME 바인딩을 되찾지 못한다
-    Width = 160, Height = 160,
+    var overlay = new Window
+    {
+        ShowActivated = false,    // ← 이 창이 활성화되지 않아 메인 창이 IME 바인딩을 되찾지 못한다
+        Width = 160, Height = 160,
+        // SystemDecorations=None / Topmost / ShowInTaskbar=false / 투명도는 전부 무관(없어도 재현)
+    };
+    overlay.Show();
 };
-main.Opened += (_, _) => overlay.Show();
 ```
+
+버튼으로 아무 때나 `new Window{ ShowActivated = false }.Show()`를 해도 똑같이 깨진다 — 기동 시점과 무관하고,
+**창을 "만드는" 행위 자체가 방아쇠**라는 걸 눈으로 보여주는 쪽이라 제보용으로 더 낫다.
 
 재현 방법: 앱 실행 → 한/영으로 한글 입력 모드 전환 → `할 일 추가 테스트` 입력.
 `할할 일일 추가가 테스트트`(중복) 또는 `할 일 가 트`(조합 유실)가 된다. 다른 앱으로 포커스가 한 번 갔다 오면 정상으로 돌아온다.
