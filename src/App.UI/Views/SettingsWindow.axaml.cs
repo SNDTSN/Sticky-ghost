@@ -89,6 +89,7 @@ public partial class SettingsWindow : Window
     {
         var provider = SelectedProvider();
         ModelTextBox.Text = provider == LlmProviderCatalog.Gemini ? _settings.GeminiModel : _settings.OpenAiModel;
+        ClearModelError();
         StatusText.Text = _secretStore!.TryGetSecret(LlmProviderCatalog.ApiKeySecretName(provider)) is not null
             ? "저장된 키 있음 (저장하면 덮어씀)"
             : "설정된 키 없음";
@@ -100,9 +101,22 @@ public partial class SettingsWindow : Window
     private void OnSaveClick(object? sender, RoutedEventArgs e)
     {
         var provider = SelectedProvider();
-        var model = ModelTextBox.Text;
-        if (string.IsNullOrWhiteSpace(model))
+
+        // 붙여넣기로 딸려온 앞뒤 공백/개행은 요청 URL에 %20으로 인코딩되어 404를 만든다(실측 확인).
+        // API 키는 이미 아래에서 Trim하는데 모델명만 빠져 있었다.
+        var model = ModelTextBox.Text?.Trim();
+        if (string.IsNullOrEmpty(model))
+        {
+            // 예전에는 여기서 조용히 return이라 캐릭터 표시/배율/팩 선택과 API 키까지 통째로 저장되지 않고
+            // 창도 닫히지 않았다 — 사용자에게는 "저장 버튼이 안 먹는다"로만 보였다.
+            ShowModelError("모델명을 입력해 주세요.");
+            ModelTextBox.Focus();
             return;
+        }
+
+        // 잘라낸 값을 화면에도 돌려준다 — 무엇이 저장됐는지 보이게.
+        ModelTextBox.Text = model;
+        ClearModelError();
 
         _settings = provider == LlmProviderCatalog.Gemini
             ? _settings with { LlmProvider = provider, GeminiModel = model }
@@ -125,6 +139,17 @@ public partial class SettingsWindow : Window
 
         Close();
     }
+
+    // 사용자가 고치기 시작하면 경고를 바로 치운다 — 입력 중에 빨간 글씨가 남아 있으면 안 고쳐진 것처럼 보인다.
+    private void OnModelTextChanged(object? sender, TextChangedEventArgs e) => ClearModelError();
+
+    private void ShowModelError(string message)
+    {
+        ModelErrorText.Text = message;
+        ModelErrorText.IsVisible = true;
+    }
+
+    private void ClearModelError() => ModelErrorText.IsVisible = false;
 
     private void OnCloseClick(object? sender, RoutedEventArgs e) => Close();
 }

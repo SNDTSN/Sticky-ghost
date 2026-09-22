@@ -19,7 +19,10 @@
 
         <StackPanel Spacing="4">
             <TextBlock Text="모델명" FontSize="12" Foreground="Gray" />
-            <TextBox x:Name="ModelTextBox" Watermark="예: gpt-4o-mini" />
+            <TextBox x:Name="ModelTextBox" Watermark="예: gpt-4o-mini" TextChanged="OnModelTextChanged" />
+            <!-- 모델명이 비어 저장이 막혔을 때만 보인다 — 예전에는 조용히 return이라 "저장 버튼이 안 먹는다"로 보였다. -->
+            <TextBlock x:Name="ModelErrorText" Foreground="#C0392B" FontSize="12"
+                       TextWrapping="Wrap" IsVisible="False" />
         </StackPanel>
 
         <StackPanel Spacing="4">
