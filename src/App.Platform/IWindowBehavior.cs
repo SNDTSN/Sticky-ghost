@@ -19,12 +19,6 @@ public interface IWindowBehavior
     /// </summary>
     void SetInputShape(IntPtr handle, IReadOnlyList<MaskRect>? rects);
 
-    /// <summary>다른 일반 창들보다 항상 위에 표시</summary>
-    void SetAlwaysOnTop(IntPtr handle, bool enabled);
-
-    /// <summary>작업표시줄/Dock에 아이콘이 뜨지 않게 함</summary>
-    void ExcludeFromTaskbar(IntPtr handle, bool enabled);
-
     /// <summary>
     /// IME(한글 조합) 입력을 받을 창을 "지금 포커스를 가진 창"으로 되돌린다. 포커스를 빼앗지 않는 창
     /// (<c>ShowActivated="False"</c>인 캐릭터·말풍선 창)을 만들거나 닫은 직후에 불러야 한다.

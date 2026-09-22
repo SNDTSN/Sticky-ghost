@@ -222,7 +222,7 @@ public partial class MainWindow : Window
 
     private void OpenMemoWindow(MemoNote memo)
     {
-        var viewModel = new MemoNoteViewModel(memo, _memoRepository, _windowBehavior);
+        var viewModel = new MemoNoteViewModel(memo, _memoRepository);
         var window = new MemoWindow(viewModel);
         _memoWindows.Add(window);
         window.Closed += (_, _) => _memoWindows.Remove(window);

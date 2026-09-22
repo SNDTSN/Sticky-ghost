@@ -2,7 +2,6 @@ using System;
 using System.Threading.Tasks;
 using App.Core.Domain.Entities;
 using App.Core.Domain.Repositories;
-using App.Platform;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -14,9 +13,7 @@ public partial class MemoNoteViewModel : ViewModelBase, IDisposable
 {
     private readonly MemoNote _memo;
     private readonly IMemoRepository _repository;
-    private readonly IWindowBehavior _windowBehavior;
     private readonly DispatcherTimer _contentSaveTimer;
-    private IntPtr _windowHandle;
 
     [ObservableProperty]
     private string _content;
@@ -35,11 +32,10 @@ public partial class MemoNoteViewModel : ViewModelBase, IDisposable
     public Action? CloseRequested;
     public Func<Task<bool>>? ConfirmDeleteRequested;
 
-    public MemoNoteViewModel(MemoNote memo, IMemoRepository repository, IWindowBehavior windowBehavior)
+    public MemoNoteViewModel(MemoNote memo, IMemoRepository repository)
     {
         _memo = memo;
         _repository = repository;
-        _windowBehavior = windowBehavior;
         _content = memo.Content;
         _colorHex = memo.Color;
         _isPinned = memo.IsPinned;
@@ -55,12 +51,6 @@ public partial class MemoNoteViewModel : ViewModelBase, IDisposable
     {
         get => MediaColor.Parse(ColorHex);
         set => ColorHex = value.ToString();
-    }
-
-    public void AttachWindowHandle(IntPtr handle)
-    {
-        _windowHandle = handle;
-        _windowBehavior.SetAlwaysOnTop(_windowHandle, IsPinned);
     }
 
     public void UpdatePosition(double x, double y)
@@ -108,10 +98,12 @@ public partial class MemoNoteViewModel : ViewModelBase, IDisposable
         OnPropertyChanged(nameof(ColorValue));
     }
 
+    // 창을 실제로 위로 올리는 것은 MemoWindow.axaml의 Topmost="{Binding IsPinned}" 바인딩이 한다.
+    // 네이티브 SetWindowPos로 직접 올리면 Avalonia가 이 창이 topmost인 줄 모르게 되어,
+    // 확인 대화상자가 소유자의 topmost를 물려받지 못하고 메모 뒤로 숨는다(KNOWN_ISSUES #25).
     partial void OnIsPinnedChanged(bool value)
     {
         _memo.IsPinned = value;
-        _windowBehavior.SetAlwaysOnTop(_windowHandle, value);
         _repository.Save(_memo);
     }
 

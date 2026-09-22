@@ -6,6 +6,7 @@
         x:DataType="vm:MemoNoteViewModel"
         Width="220" Height="220"
         SystemDecorations="None"
+        Topmost="{Binding IsPinned}"
         Title="메모">
 
     <!-- SystemDecorations="None"이라 OS 타이틀바(및 그 자체 닫기 버튼)가 없다.

@@ -11,9 +11,5 @@ public sealed class StubWindowBehavior : IWindowBehavior
 
     public void SetInputShape(IntPtr handle, IReadOnlyList<MaskRect>? rects) { }
 
-    public void SetAlwaysOnTop(IntPtr handle, bool enabled) { }
-
-    public void ExcludeFromTaskbar(IntPtr handle, bool enabled) { }
-
     public void RestoreImeBinding() { }
 }

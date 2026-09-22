@@ -4,20 +4,14 @@ using System.Runtime.InteropServices;
 namespace App.Platform.Windows;
 
 /// <summary>
-/// IWindowBehavior의 Windows 구현(user32/gdi32 P/Invoke). 지금 필요한 SetInputShape와 SetAlwaysOnTop만 구현했고,
-/// SetClickThrough/ExcludeFromTaskbar는 필요해지는 시점까지 no-op이다(Stub과 동일 동작).
+/// IWindowBehavior의 Windows 구현(user32/gdi32 P/Invoke). 지금 필요한 SetInputShape와 RestoreImeBinding만 구현했고,
+/// SetClickThrough는 필요해지는 시점까지 no-op이다(Stub과 동일 동작).
 /// </summary>
 public sealed class WindowsWindowBehavior : IWindowBehavior
 {
     private const int RdhRectangles = 1;
     private const int RgnDataHeaderSize = 32;
     private const int RectSize = 16;
-
-    private static readonly IntPtr HwndTopmost = new(-1);
-    private static readonly IntPtr HwndNoTopmost = new(-2);
-    private const uint SwpNoSize = 0x0001;
-    private const uint SwpNoMove = 0x0002;
-    private const uint SwpNoActivate = 0x0010;
 
     private const uint WmInputLangChange = 0x0051;
 
@@ -49,16 +43,6 @@ public sealed class WindowsWindowBehavior : IWindowBehavior
         if (SetWindowRgn(handle, hRegion, true) == 0)
             DeleteObject(hRegion);
     }
-
-    public void SetAlwaysOnTop(IntPtr handle, bool enabled)
-    {
-        if (handle == IntPtr.Zero)
-            return;
-
-        SetWindowPos(handle, enabled ? HwndTopmost : HwndNoTopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate);
-    }
-
-    public void ExcludeFromTaskbar(IntPtr handle, bool enabled) { }
 
     /// <summary>
     /// 포커스를 가진 창에 WM_INPUTLANGCHANGE를 한 번 보낸다. Avalonia의 WndProc이 이 메시지를 받으면
@@ -130,9 +114,4 @@ public sealed class WindowsWindowBehavior : IWindowBehavior
 
     [DllImport("user32.dll")]
     private static extern int SetWindowRgn(IntPtr hWnd, IntPtr hRgn, [MarshalAs(UnmanagedType.Bool)] bool bRedraw);
-
-    [DllImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool SetWindowPos(
-        IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
 }

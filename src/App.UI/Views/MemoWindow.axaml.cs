@@ -39,7 +39,6 @@ public partial class MemoWindow : Window
         PositionChanged += (_, _) => RestartSaveTimer();
         SizeChanged += (_, _) => RestartSaveTimer();
 
-        Opened += (_, _) => viewModel.AttachWindowHandle(TryGetPlatformHandle()?.Handle ?? IntPtr.Zero);
         Closed += OnWindowClosed;
     }
 
