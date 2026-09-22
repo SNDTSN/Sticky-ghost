@@ -83,8 +83,9 @@ public sealed class GeminiChatCompletionAdapter : ICharacterLlmAdapter
                     return LlmReactionResult.Failed(LlmFailure.Unauthorized);
                 }
 
-                LlmFailureLog.Write(LlmProviderCatalog.Gemini, _model, LlmFailure.NetworkError, response.StatusCode);
-                return LlmReactionResult.Failed(LlmFailure.NetworkError);
+                var httpFailure = LlmHttpFailure.Classify(response.StatusCode);
+                LlmFailureLog.Write(LlmProviderCatalog.Gemini, _model, httpFailure, response.StatusCode);
+                return LlmReactionResult.Failed(httpFailure);
             }
 
             string body;

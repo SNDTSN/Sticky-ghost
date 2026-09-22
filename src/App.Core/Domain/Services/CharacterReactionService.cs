@@ -22,6 +22,11 @@ public sealed class CharacterReactionService
         [LlmFailure.NetworkError] = "인터넷이 잘 안 되는 것 같아...",
         [LlmFailure.Timeout] = "생각하다가 시간이 다 됐어...",
         [LlmFailure.InvalidResponse] = "지금은 뭐라고 해야 할지 잘 모르겠어.",
+        [LlmFailure.ModelNotFound] = "설정에 적어둔 모델 이름을 못 찾겠어. 오타가 났거나 이제 없는 모델인가봐.",
+        // 분당 요청 제한이면 기다리면 풀리지만 월 쿼터 소진이면 결제 설정을 봐야 한다 — 둘을 상태 코드로는
+        // 가를 수 없어 대사는 부드럽게 두고, 정확한 사유는 app.log의 [llm] 기록으로 확인한다.
+        [LlmFailure.RateLimited] = "오늘은 너무 많이 얘기했나봐. 조금 있다가 다시 말 걸어줘.",
+        [LlmFailure.ProviderError] = "지금 저쪽 서버가 바쁜가봐. 잠깐 뒤에 다시 해보자.",
         [LlmFailure.Unexpected] = "앗, 뭔가 잘못된 것 같아...",
     };
 

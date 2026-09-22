@@ -32,6 +32,13 @@ public enum LlmFailure
     NetworkError,
     Timeout,
     InvalidResponse,
+    // 아래 셋은 예전에 전부 NetworkError로 뭉뚱그려져 "인터넷이 잘 안 되는 것 같아..."가 나왔다 — KNOWN_ISSUES #18.
+    /// <summary>404 — 모델명 오타 또는 단종된 모델.</summary>
+    ModelNotFound,
+    /// <summary>429 — 분당 요청 제한 또는 쿼터 초과.</summary>
+    RateLimited,
+    /// <summary>5xx — 제공자 장애. 사용자가 할 수 있는 일이 없다.</summary>
+    ProviderError,
     // 어댑터/시크릿 저장소에서 분류되지 않은 예외가 새어 나온 경우의 안전망(CharacterReactionService가 채움).
     // 어댑터가 직접 반환하는 값이 아니다 — 2026-09-20 안정성 보강, docs/stability-hardening.md 참고.
     Unexpected,

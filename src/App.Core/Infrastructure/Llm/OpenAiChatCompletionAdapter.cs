@@ -69,7 +69,9 @@ public sealed class OpenAiChatCompletionAdapter : ICharacterLlmAdapter
 
         using (response)
         {
-            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            // 403(권한 부족·지역 차단)도 사용자가 할 일은 "키/계정을 확인"으로 401과 같다 — Gemini 어댑터와 같은 규칙.
+            // 예전에는 403이 NetworkError로 흘러 "인터넷이 잘 안 되는 것 같아..."가 나왔다.
+            if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
             {
                 LlmFailureLog.Write(LlmProviderCatalog.OpenAi, _model, LlmFailure.Unauthorized, response.StatusCode);
                 return LlmReactionResult.Failed(LlmFailure.Unauthorized);
@@ -77,8 +79,9 @@ public sealed class OpenAiChatCompletionAdapter : ICharacterLlmAdapter
 
             if (!response.IsSuccessStatusCode)
             {
-                LlmFailureLog.Write(LlmProviderCatalog.OpenAi, _model, LlmFailure.NetworkError, response.StatusCode);
-                return LlmReactionResult.Failed(LlmFailure.NetworkError);
+                var httpFailure = LlmHttpFailure.Classify(response.StatusCode);
+                LlmFailureLog.Write(LlmProviderCatalog.OpenAi, _model, httpFailure, response.StatusCode);
+                return LlmReactionResult.Failed(httpFailure);
             }
 
             string body;
