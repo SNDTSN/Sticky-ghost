@@ -45,7 +45,7 @@ public partial class TodoItemViewModel : ViewModelBase
         IsImportant = item.IsImportant;
         IsUrgent = item.IsUrgent;
         _isCompleted = item.IsCompleted;
-        RecurrenceSummary = BuildRecurrenceSummary(item.Recurrence);
+        RecurrenceSummary = RecurrenceSummaryFormatter.Format(item.Recurrence);
         CategoryName = category?.Name;
         CategoryColorHex = category?.Color;
 
@@ -65,40 +65,4 @@ public partial class TodoItemViewModel : ViewModelBase
 
     [RelayCommand]
     private Task DeleteAsync() => _onDelete(Id);
-
-    // 요일 표시 순서 (docs/todo-design.md: 월=1,화=2,수=4... 와 동일한 순서)
-    private static readonly (DayOfWeek Day, string Label)[] DayOrder =
-    {
-        (DayOfWeek.Monday, "월"), (DayOfWeek.Tuesday, "화"), (DayOfWeek.Wednesday, "수"),
-        (DayOfWeek.Thursday, "목"), (DayOfWeek.Friday, "금"), (DayOfWeek.Saturday, "토"), (DayOfWeek.Sunday, "일"),
-    };
-
-    private static string? BuildRecurrenceSummary(RecurrenceRule? recurrence)
-    {
-        if (recurrence is null)
-            return null;
-
-        var unit = recurrence.Type switch
-        {
-            RecurrenceType.Daily => "일",
-            RecurrenceType.Weekly => "주",
-            RecurrenceType.Monthly => "달",
-            _ => "?",
-        };
-
-        string body;
-        if (recurrence.Type == RecurrenceType.Weekly && recurrence.DaysOfWeek is { Count: > 0 } days)
-        {
-            var labels = DayOrder.Where(d => days.Contains(d.Day)).Select(d => d.Label);
-            body = $"매주 {string.Join(",", labels)}";
-        }
-        else
-        {
-            body = recurrence.Interval == 1 ? $"매{unit}" : $"{recurrence.Interval}{unit}마다";
-        }
-
-        return recurrence.EndDate is { } end
-            ? $"🔁 {body} (종료 {end:yyyy-MM-dd})"
-            : $"🔁 {body}";
-    }
 }
