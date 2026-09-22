@@ -1,6 +1,7 @@
 ﻿using System;
 using System.IO;
 using App.Core.Diagnostics;
+using App.Core.Infrastructure.FileSystem;
 using App.Platform;
 using App.Platform.Windows;
 using Avalonia;
@@ -46,12 +47,8 @@ sealed class Program
         };
     }
 
-    private static ISecretStore CreateSecretStore()
-    {
-        var dataDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "StickyGhost");
-        return new DpapiSecretStore(Path.Combine(dataDir, "secrets"));
-    }
+    private static ISecretStore CreateSecretStore() =>
+        new DpapiSecretStore(Path.Combine(AppPaths.DataDir, "secrets"));
 
     // Avalonia configuration, don't remove; also used by visual designer.
     public static AppBuilder BuildAvaloniaApp()

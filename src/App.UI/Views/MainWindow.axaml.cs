@@ -30,6 +30,8 @@ public partial class MainWindow : Window
     private readonly IWindowBehavior _windowBehavior;
     private readonly List<MemoWindow> _memoWindows = new();
     private readonly CharacterPackService _characterPackService;
+    // 캐릭터 팩 폴더는 생성자와 설정창 열기 두 곳에서 쓴다 — 같은 경로를 두 번 조립하지 않도록 한 번만 계산한다.
+    private readonly string _packsRootDir;
     private readonly CharacterIpcServer _characterIpcServer;
     private readonly ISecretStore _secretStore;
     private readonly AppSettingsStore _appSettingsStore;
@@ -50,8 +52,7 @@ public partial class MainWindow : Window
         _secretStore = secretStore;
         _windowBehavior = windowBehavior;
 
-        var dataDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "StickyGhost");
+        var dataDir = AppPaths.DataDir;
         Directory.CreateDirectory(dataDir);
 
         // 마지막에 놓았던 위치/크기 복원. 처음 실행이거나 화면 밖으로 잘렸다면 우상단(본가 우카가카처럼 오른쪽)에서 시작한다.
@@ -79,13 +80,13 @@ public partial class MainWindow : Window
         };
         DataContext = mainViewModel;
 
-        var packsRootDir = Path.Combine(AppContext.BaseDirectory, "CharacterPacks");
-        var builtInPackPath = Path.Combine(packsRootDir, "default");
+        _packsRootDir = Path.Combine(AppContext.BaseDirectory, "CharacterPacks");
+        var builtInPackPath = Path.Combine(_packsRootDir, "default");
         _characterPackService = new CharacterPackService(new JsonCharacterPackLoader(), builtInPackPath);
 
         _appSettingsStore = new AppSettingsStore(Path.Combine(dataDir, "settings.json"));
         _characterOverlay = new CharacterOverlayController(
-            _characterPackService, packsRootDir, builtInPackPath, _windowStateStore, _windowBehavior,
+            _characterPackService, _packsRootDir, builtInPackPath, _windowStateStore, _windowBehavior,
             BuildReactionService(_appSettingsStore.Load()));
 
         // App.Mcp(Claude가 스폰하는 별도 프로세스)가 명명 파이프로 say/setExpression을 보내면 여기서 받는다.
@@ -138,8 +139,7 @@ public partial class MainWindow : Window
         // async void라 여기서 새는 예외는 프로세스 종료로 이어지므로 전체를 감싼다.
         try
         {
-            var packsRootDir = Path.Combine(AppContext.BaseDirectory, "CharacterPacks");
-            await new SettingsWindow(_secretStore, _appSettingsStore, packsRootDir).ShowDialog(this);
+            await new SettingsWindow(_secretStore, _appSettingsStore, _packsRootDir).ShowDialog(this);
 
             // provider/모델/키가 바뀌었을 수 있으니 재시작 없이 바로 반영되도록 다시 조립한다.
             _characterOverlay.SetReactionService(BuildReactionService(_appSettingsStore.Load()));

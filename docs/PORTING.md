@@ -114,6 +114,24 @@ LLM 어댑터(OpenAI/Gemini 등)의 API 키를 암호화해서 로컬에 저장.
 
 상세 트레이드오프와 롤백: `docs/stability-hardening.md` "C1".
 
+## 앱 데이터 폴더 경로 (2026-09-22)
+
+DB·설정·창 위치·API 키·로그가 들어가는 로컬 데이터 폴더. **`App.Core/Infrastructure/FileSystem/AppPaths.cs` 한 곳에서만 만든다** —
+예전에는 `AppLog`, `MainWindow`, `App.Windows/Program.cs`가 각자 `%LocalAppData%\StickyGhost`를 조립하고 있었다(2026-09-22 정리).
+
+| 경로 | 쓰는 곳 | 현재 값 |
+|---|---|---|
+| `AppPaths.DataDir` | `stickyghost.db`, `settings.json`, `window-state.json`, `secrets/` | `%LocalAppData%\StickyGhost` |
+| `AppPaths.LogFile` | `AppLog` | `%LocalAppData%\StickyGhost\logs\app.log` |
+
+**Mac 이식 시 볼 것**: .NET에서 `Environment.SpecialFolder.LocalApplicationData`는 macOS에서 `~/.local/share`로 매핑된다.
+동작은 하지만 맥 관례는 `~/Library/Application Support/<앱 이름>`이라 그쪽으로 바꾸려면 `AppPaths.DataDir` 한 줄만 고치면 된다.
+플랫폼 분기가 필요해지면 `App.Platform` 인터페이스로 뺄 게 아니라 여기서 `OperatingSystem.IsMacOS()`로 갈라도 된다 —
+OS 종속 API를 호출하는 게 아니라 경로 문자열만 고르는 일이기 때문이다(`AppSettingsStore`를 `App.Core`에 둔 것과 같은 판단).
+
+**여기 넣지 않는 것**: 캐릭터 팩 폴더(`AppContext.BaseDirectory/CharacterPacks`)는 데이터가 아니라 앱과 함께 배포되는 자산이라
+`MainWindow._packsRootDir`가 따로 만든다. 사용자가 팩을 추가하는 폴더를 데이터 폴더 쪽으로 옮기게 되면 그때 이 표에 합친다.
+
 ## 다음에 채울 것
 
 캐릭터 엔진/메모 위젯 설계가 진행되면서 트레이 아이콘, 전역 단축키, 알림(토스트) 등 추가 플랫폼 인터페이스가 필요해질 수 있음. 필요해지는 시점에 이 문서에 표를 추가한다 — 미리 만들어두지 않는다.
