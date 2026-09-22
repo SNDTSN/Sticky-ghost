@@ -14,4 +14,6 @@ public sealed class StubWindowBehavior : IWindowBehavior
     public void SetAlwaysOnTop(IntPtr handle, bool enabled) { }
 
     public void ExcludeFromTaskbar(IntPtr handle, bool enabled) { }
+
+    public void RestoreImeBinding() { }
 }

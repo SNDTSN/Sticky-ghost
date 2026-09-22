@@ -19,7 +19,7 @@
 * `App.Platform.Windows` — `ISecretStore`(`DpapiSecretStore`)와 `IWindowBehavior`(`WindowsWindowBehavior`, 2026-09-20)를 구현했고
   `App.Windows`(실행 진입점)가 `App.UI.App.SecretStoreFactory`/`WindowBehaviorFactory` 델리게이트로 `MainWindow`에 주입한다.
   `WindowsWindowBehavior`는 지금 필요한 `SetInputShape`(캐릭터 오버레이의 투명 영역 클릭 통과)와 `SetAlwaysOnTop`(메모 📌)만
-  구현했고 `SetClickThrough`/`ExcludeFromTaskbar`는 no-op(필요해지면 구현). `IIdleDetector`의 Windows 구현은 아직 미착수.
+  구현했고, 2026-09-22에 `RestoreImeBinding`(한글 IME 바인딩 복구, #24)을 추가했다. `SetClickThrough`/`ExcludeFromTaskbar`는 no-op(필요해지면 구현). `IIdleDetector`의 Windows 구현은 아직 미착수.
   `App.UI`는 더 이상 `App.Platform.Stub`을 참조하지 않는다.
   캐릭터 오버레이 창/말풍선은 `Topmost`, `ShowInTaskbar`, `TransparencyLevelHint=Transparent`, `SystemDecorations=None` 같은
   Avalonia 기본 속성으로 구성하고, Avalonia로 안 되는 "투명 픽셀 클릭 통과"만 `SetInputShape`로 처리한다.
@@ -34,6 +34,7 @@
 | `SetInputShape(handle, rects)` | `rects`(창 좌상단 기준 물리 픽셀, 서로 겹치지 않는 `MaskRect` 목록) 안쪽만 마우스 입력을 받고 렌더링되며, 밖은 아래 창으로 통과. 투명 PNG 캐릭터의 투명한 부분이 뒤에 있는 창 클릭을 막지 않게 하는 용도. `null`이면 제한 해제 | `ExtCreateRegion`(RGNDATA) + `SetWindowRgn` (gdi32/user32). 성공 시 리전 소유권이 OS로 넘어가므로 `DeleteObject` 금지, 실패 시에만 해제. 빈 목록은 창이 보이지도 눌리지도 않게 되므로 무시 | 알파 0 픽셀은 기본적으로 클릭이 통과되므로 no-op으로 시작해도 될 가능성이 큼(이식 시 실측). 필요하면 `NSWindow` 컨텐츠 뷰의 `hitTest` 재정의 |
 | `SetAlwaysOnTop(handle, enabled)` | 다른 일반 창들보다 항상 위에 표시 | `SetWindowPos(HWND_TOPMOST, ...)` | `NSWindow.level = .floating` |
 | `ExcludeFromTaskbar(handle, enabled)` | 작업표시줄/Dock에 아이콘이 뜨지 않게 함 | `WS_EX_TOOLWINDOW` 스타일 추가 | `NSWindow.styleMask`에서 창을 `NSPanel` + `.nonactivatingPanel`로 구성하거나 `NSApp.setActivationPolicy(.accessory)` |
+| `RestoreImeBinding()` | IME(한글 조합) 입력을 받을 창을 지금 포커스를 가진 창으로 되돌림. 활성화 없이 뜨는 창(`ShowActivated="False"`인 캐릭터·말풍선)을 만들거나 닫은 직후에 호출. 포커스·z-order는 건드리지 않음 | `GetFocus()`가 준 창에 `WM_INPUTLANGCHANGE`(lParam = `GetKeyboardLayout(0)`)를 `SendMessage`. Avalonia가 이 메시지에서 전역 IME 싱글턴을 그 창으로 다시 묶는다. `GetFocus()`가 0(다른 앱이 포커스)이면 아무것도 안 함 — 돌아올 때 `WM_ACTIVATE`가 알아서 고친다. 근거는 KNOWN_ISSUES #24 | Avalonia macOS 백엔드는 IME 상태를 `IAvnWindow`별로 들고 있어 같은 문제가 없을 가능성이 큼 → no-op으로 시작하고, 이식 시 오버레이를 띄운 채 한글 입력을 실측해 확인 |
 
 **Stub 동작**: 아무것도 하지 않음 (일반 창처럼 동작). 개발 중 로직 확인용으로 충분.
 

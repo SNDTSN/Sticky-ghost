@@ -24,4 +24,18 @@ public interface IWindowBehavior
 
     /// <summary>작업표시줄/Dock에 아이콘이 뜨지 않게 함</summary>
     void ExcludeFromTaskbar(IntPtr handle, bool enabled);
+
+    /// <summary>
+    /// IME(한글 조합) 입력을 받을 창을 "지금 포커스를 가진 창"으로 되돌린다. 포커스를 빼앗지 않는 창
+    /// (<c>ShowActivated="False"</c>인 캐릭터·말풍선 창)을 만들거나 닫은 직후에 불러야 한다.
+    ///
+    /// Avalonia는 IME 상태를 프로세스 전역 싱글턴 하나(<c>Imm32InputMethod.Current</c>)에 두고, 창을 새로
+    /// 만들 때마다 그 싱글턴이 가리키는 창을 새 창으로 바꿔 쓴다. 보통은 새 창이 활성화되고 사용자가 원래 창으로
+    /// 돌아올 때 WM_ACTIVATE로 원위치되지만, 활성화 없이 뜨는 창은 그 복구 시점이 영영 오지 않아 원래 창의 한글
+    /// 입력이 계속 깨진다. 자세한 근거는 KNOWN_ISSUES.md #24.
+    ///
+    /// 포커스나 창 순서(z-order)는 건드리지 않으므로 사용자가 조합 중일 때 불러도 안전하고, 이미 올바른 창을
+    /// 가리키고 있으면 아무 일도 하지 않는다.
+    /// </summary>
+    void RestoreImeBinding();
 }

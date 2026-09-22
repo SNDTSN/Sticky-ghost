@@ -477,7 +477,7 @@ OpenAI 어댑터는 401만 인증 실패로 보므로 403(권한/지역 차단)�
 - **`TodoService.CompleteTodo`의 쓰기 순서**: `_completionLog.Append`가 `_repository.Save(item)`보다 먼저이고 둘은 별도 커넥션이라 트랜잭션을 공유하지 않는다.
   `Save`가 실패하면 완료 로그만 남고 항목은 미완료로 남는다. 지금은 로컬 SQLite라 실패가 드물다.
 
-## 24. "+ 할 일 추가" 입력창에서 한글 입력이 깨짐 — **재현 확인됨, 증상 특정됨 (2026-09-22)**
+## 24. "+ 할 일 추가" 입력창에서 한글 입력이 깨짐 — **해결됨 (2026-09-22)**
 
 **어디**: 추정 — `App.UI/Views/MainWindow.axaml`의 "+ 할 일 추가" `Button.Flyout` 안에 있는 `TextBox`들(제목, 체크리스트 항목).
 
@@ -545,7 +545,9 @@ OpenAI 어댑터는 401만 인증 실패로 보므로 403(권한/지역 차단)�
 우리 앱에서 이 조건을 만드는 것은 캐릭터 오버레이 창(`CharacterWindow`)이다. 환경변수로 구성요소를 끄며 확인한 결과
 캐릭터를 끄면 정상, 켜면 재현됐다(메모·IPC는 무관).
 
-### 원인 확정 — `ShowActivated="False"` (2026-09-22)
+### 방아쇠 좁히기 — `ShowActivated="False"` (2026-09-22)
+
+> 이 절은 조사 경과다. 최종 결론은 아래 "진짜 원인"을 볼 것 — `ShowActivated="False"`는 원인이 아니라 **복구를 막는 조건**이었다.
 
 평범한 두 번째 창(장식 있음 + 작업표시줄 표시 + 정상 활성화)은 **IME를 깨뜨리지 않는다**. 거기서 속성을 하나씩 되돌려 범인을 특정했다.
 
@@ -554,42 +556,79 @@ OpenAI 어댑터는 401만 인증 실패로 보므로 403(권한/지역 차단)�
 | `ShowActivated=true`, 장식 없음, 작업표시줄 숨김 | **정상** |
 | `ShowActivated=false`, 장식 **있음**, 작업표시줄 숨김 | **깨짐** |
 
-**`ShowActivated="False"`로 창을 띄우는 것 하나가 원인이다.** Topmost·투명도·창 장식·작업표시줄·주기적 렌더는 전부 무관.
+**`ShowActivated="False"`로 창을 띄우는 것 하나가 차이를 만든다.** Topmost·투명도·창 장식·작업표시줄·주기적 렌더는 전부 무관.
 
 우리 앱에서 이 속성을 쓰는 창은 **`CharacterWindow.axaml`과 `SpeechBubbleWindow.axaml` 둘 다**(각 13행)이다.
 원래 이 값을 넣은 이유는 캐릭터·말풍선이 뜰 때 포커스를 빼앗지 않으려는 것이었는데, 그 대가로 한글 IME가 깨지고 있었다.
 
-### 검증된 해결과, 아직 남은 문제
+### 진짜 원인 — Avalonia의 전역 IME 싱글턴이 "마지막에 만들어진 창"을 가리킨다 (2026-09-22)
 
-**기동 시점은 해결된다** — `ShowActivated=true`로 띄운 뒤 곧바로 메인 창을 `Activate()`하고 포커스를 돌려주면
-**한글도 정상이고 커서도 입력칸에 남는다**(최소 앱에서 확인).
+`ShowActivated="False"`는 **방아쇠가 아니라 "고쳐지지 않게 만드는 조건"** 이었다. Avalonia 11.3 소스를 받아 확인한 실제 원인은 이렇다.
 
-**사용 중(말풍선)은 해결되지 않는다.** 타이핑 도중에 창이 뜨면:
+Avalonia는 IME 상태를 프로세스 전역 싱글턴 **하나**에 둔다 — `Imm32InputMethod.Current` (`Input/Imm32InputMethod.cs:110`).
+여기에는 "지금 IME 입력을 받는 창" 하나(`Hwnd`, `_parent`)만 들어간다. 그런데 `WindowImpl` **생성자**가 무조건 이 싱글턴을 자기 자신으로 바꿔 쓴다:
 
-| | `ShowActivated=true` | `ShowActivated=false` |
-|---|---|---|
-| 기동 시 | **정상** | IME 컨텍스트 깨짐 |
-| 타이핑 도중 | 조합이 그 자리에서 깨짐(`ㅎㅎㅏ`처럼 자모 분해) | IME 컨텍스트가 깨져 이후 입력이 계속 깨짐 |
+```csharp
+// WindowImpl.cs:156
+if (this is not PopupImpl)                      // Flyout/Popup은 제외된다(이슈 #8758 수정). 일반 Window는 제외되지 않는다.
+    UpdateInputMethod(GetKeyboardLayout(0));    // → Current.SetLanguageAndWindow(this, Hwnd, hkl)
+```
 
-포커스를 정확히 원래 컨트롤로 되돌려도 마찬가지였다 — **활성화되는 순간 진행 중이던 조합이 중단되는 것은 Windows IME의 동작**이라 앱이 피할 수 없다.
+즉 **창을 "만드는" 것만으로** 메인 창이 IME를 빼앗긴다. 보통은 새 창이 활성화되고 사용자가 원래 창으로 돌아올 때
+`WM_ACTIVATE`/`WM_IME_SETCONTEXT`가 `UpdateInputMethod`를 다시 불러 원위치되는데(`WindowImpl.AppWndProc.cs:46, 801`),
+**활성화 없이 뜨는 창은 그 복구 시점이 영영 오지 않는다.**
 
-### 다음에 할 일 (설계 제안, 미구현)
+| 두 번째 창 | 결과 |
+|---|---|
+| `ShowActivated=true` | 생성 때 빼앗김 → 활성화·포커스 왕복 중에 메인 창이 `WM_ACTIVATE`를 받아 **되찾음** |
+| `ShowActivated=false` | 생성 때 빼앗김 → **되찾을 기회가 없어 계속 깨진 채** |
 
-**오버레이 창을 기동 때 한 번만 띄우고, 이후로는 `Show()`/`Hide()`를 부르지 않는다.**
+"다른 앱에 갔다 오면 낫는다"가 바로 이 `WM_ACTIVATE` 복구다. 우리 앱 안의 **메모 창**으로 포커스를 옮겼다 돌아와도 낫는다(2026-09-22 사용자 확인) —
+OS의 IME 상태가 아니라 Avalonia 내부의 창 포인터 하나가 문제라는 결정적 증거다.
 
-- `CharacterWindow` — 이미 기동 시 한 번만 띄운다. `ShowActivated="True"`로 바꾸고 직후 포커스 복원을 넣으면 된다.
-- `SpeechBubbleWindow` — 지금은 말할 때마다 `Show()`를 부른다(`SpeechBubbleWindow.axaml.cs:91`).
-  기동 때 투명한 상태로 미리 띄워두고, 말할 때는 위치 이동과 내용 표시만 하도록 바꾼다.
+**두 증상이 이 구조에서 그대로 나온다:**
 
-이러면 창을 띄우는 순간이 기동 시 한 번뿐이고, 그때는 사용자가 타이핑 중이 아니므로 위의 검증된 방법이 통한다.
+- **증상 1(중복)**: 조합이 확정되면 확정 문자열은 전역 포커스 요소(= 메인 창의 TextBox)로 잘 전달된다. 그런데 중복 방지 플래그는
+  `_parent._ignoreWmChar = true`로 **오버레이 창** 쪽에 세운다(`Imm32InputMethod.cs:370`). 메인 창의 `_ignoreWmChar`는 `false` 그대로라
+  같은 글자가 `WM_CHAR`로 한 번 더 들어온다(`AppWndProc.cs:207`) → `할할`.
+- **증상 2(유실, 플라이아웃을 다시 연 뒤)**: TextBox가 포커스를 잃으면 `SetClient(null)` → `DisableImm()`이 `ImmAssociateContext(Hwnd, 0)`을
+  **오버레이 hwnd**에 건다. 다시 열면 `EnableImm()`이 오버레이용 **빈 IMC를 새로 만들어** 붙인다. 이후 `GetCompositionString`은
+  `ImmGetContext(오버레이 hwnd)` = 그 빈 컨텍스트를 읽으므로 확정 문자열이 빈 문자열이 되고, 동시에 `IsComposing` 때문에 `WM_CHAR`도 버려진다
+  (`AppWndProc.cs:201`) → `할 일 가 트`. **"다시 열면 더 나빠진다"는 관찰이 정확히 여기서 나온다.**
 
-**아직 검증 안 된 것**: 이미 떠 있는 창의 `Opacity`/`Position`만 바꾸는 것이 IME를 건드리지 않는지.
-안전할 것으로 보이지만 이번 조사에서 예상이 여러 번 빗나갔으므로(깜빡임·Topmost·포커스 복원) 구현 전에 확인할 것.
+### 적용한 수정 (2026-09-22)
 
-**또 하나 확인할 것**: `ShowActivated="True"`로 바꾸면 다른 앱에서 작업하는 중에 캐릭터가 떠도 포커스를 빼앗을 수 있다.
-기동 시에만 뜨도록 바꾸면 대부분 해소되지만, 설정에서 캐릭터를 켜는 경우 등 사용 중 표시 경로가 남아 있으므로
-"우리 앱이 이미 활성 상태일 때만 활성화해서 띄운다" 같은 규칙이 필요할 수 있다.
+**앞서 적어둔 "말풍선을 기동 때 한 번만 띄우는 재설계"는 하지 않았다 — 효과가 없기 때문이다.** 문제는 `Show()`가 아니라 `new Window()`이므로
+재설계해도 창을 만드는 순간 똑같이 깨진다.
 
+대신 **빼앗긴 바인딩을 즉시 되돌려준다**. 포커스를 가진 창에 `WM_INPUTLANGCHANGE`를 한 번 보내면 Avalonia가 `UpdateInputMethod(lParam)`을
+실행해 싱글턴을 그 창으로 다시 묶는다(`AppWndProc.cs:788`). 키보드 레이아웃은 실제 현재 값을 그대로 넘기므로 `DisableImm`/`EnableImm` 경로를
+타지 않고 가리키는 창만 바뀐다 — **포커스도 z-order도 건드리지 않아 조합 중에 불러도 안전**하고, 이미 올바르면 조기 반환한다.
+
+- `IWindowBehavior.RestoreImeBinding()` 추가 (Windows: `GetFocus()` + `SendMessage(WM_INPUTLANGCHANGE, …, GetKeyboardLayout(0))`, Stub: no-op).
+  `GetFocus()`가 0이면(다른 앱이 포커스) 아무것도 하지 않는다 — 어차피 돌아올 때 `WM_ACTIVATE`가 고친다.
+- 호출 지점 세 곳:
+  - `CharacterWindow`의 `Opened` — 캐릭터 창과 말풍선 창이 둘 다 만들어진 뒤라 한 번으로 둘 다 보정된다.
+  - `CharacterWindow.ShowLine`의 `_bubble.Speak` 직후 — 이미 만들어진 창의 `Show()`는 바인딩을 넘기지 않지만, 말풍선은 사용자가 타이핑하는
+    도중에 뜨는 유일한 창이라 보험으로 둔다.
+  - `CharacterOverlayController.Apply`에서 캐릭터를 꺼 `_window.Close()` 한 직후 — 창이 닫힐 때 `ClearLanguageAndWindow`가 입력 대상(`Client`)까지
+    지울 수 있다(`AppWndProc.cs:97`).
+
+### 수정 확인 (2026-09-22, 사용자)
+
+기동 직후 첫 입력, 플라이아웃을 닫았다 다시 연 뒤, 체크리스트 칸, 카테고리 관리 플라이아웃, 캐릭터 껐다 켜기, 캐릭터를 끈 채 재기동 —
+모두 `할 일 추가 테스트`가 중복도 유실도 없이 그대로 입력된다.
+
+**아직 확인하지 않은 것**: 한글을 조합하는 **도중에** 말풍선이 뜨는 경우(조건을 맞추기 까다로워 보류). 창을 새로 만드는 게 아니라
+이미 떠 있는 창을 `Show()`하는 경로라 안전할 것으로 보지만, 실측 전까지는 확정이 아니다.
+
+**메모 창은 보정이 필요 없다** — `ShowActivated` 기본값(true)이라 정상적으로 활성화되고, 메인 창으로 돌아오면 `WM_ACTIVATE`가 알아서 되돌린다.
+
+**남은 위험**: Avalonia 내부 구현(전역 싱글턴 + `WM_INPUTLANGCHANGE` 처리)에 기대는 보정이므로, Avalonia를 12.x로 올릴 때 이 두 가지가
+그대로인지 확인해야 한다. 12.1.2 시점에는 같은 구조다.
+
+**업스트림 제보 거리**: `WindowImpl.cs:156`의 `this is not PopupImpl` 조건에 "활성화 없이 띄우는 창"도 포함시키면 되는 한 줄짜리 수정이다.
+아래 최소 재현과 함께 이슈를 낼 수 있다.
 ### Avalonia 제보용 최소 재현
 
 ```csharp
@@ -600,7 +639,7 @@ var overlay = new Window
     SystemDecorations = SystemDecorations.None,  // 무관 (있어도 재현)
     Topmost = true,                              // 무관
     ShowInTaskbar = false,                       // 무관
-    ShowActivated = false,                       // ← 이것 하나가 원인
+    ShowActivated = false,                       // ← 이 창이 활성화되지 않아 메인 창이 IME 바인딩을 되찾지 못한다
     Width = 160, Height = 160,
 };
 main.Opened += (_, _) => overlay.Show();

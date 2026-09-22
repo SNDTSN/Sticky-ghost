@@ -59,7 +59,14 @@ public sealed class CharacterOverlayController
     {
         if (!settings.CharacterVisible)
         {
-            _window?.Close();
+            if (_window is not null)
+            {
+                _window.Close();
+                // 창이 닫히면 Avalonia가 전역 IME 상태를 정리하는데, 그 상태가 이 창을 가리키고 있으면
+                // 입력 대상까지 같이 지워져 메인 창의 한글 입력이 죽는다(#24). 닫은 직후에 되돌려 둔다.
+                _windowBehavior.RestoreImeBinding();
+            }
+
             return PackApplyResult.Applied;
         }
 

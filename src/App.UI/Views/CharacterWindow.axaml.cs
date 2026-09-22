@@ -110,6 +110,9 @@ public partial class CharacterWindow : Window
         {
             _isOpened = true;
             RefreshScaledState();
+            // 이 창과 말풍선 창은 ShowActivated="False"라, 만들어지는 것만으로 메인 창의 한글 입력을 가로챈다(#24).
+            // 두 창 모두 이 시점에는 만들어져 있으므로 여기서 한 번 되돌리면 둘 다 보정된다.
+            _windowBehavior?.RestoreImeBinding();
         };
         ScalingChanged += (_, _) => RefreshScaledState();
         _bubble.OffsetChanged += OnBalloonOffsetChanged;
@@ -510,6 +513,9 @@ public partial class CharacterWindow : Window
             return;
 
         _bubble.Speak(text, CurrentRectPx());
+        // 이미 만들어져 있는 창을 Show하는 것만으로는 IME 바인딩이 넘어가지 않지만(#24), 말풍선은 사용자가
+        // 타이핑하는 도중에 뜨는 유일한 창이라 보험으로 둔다. 바인딩이 이미 맞으면 아무 일도 하지 않는다.
+        _windowBehavior?.RestoreImeBinding();
     }
 
     public void ShowExpression(string expressionId)
