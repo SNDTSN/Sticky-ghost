@@ -17,6 +17,7 @@ using App.UI.ViewModels;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Threading;
 
 namespace App.UI.Views;
 
@@ -67,10 +68,12 @@ public partial class MainWindow : Window
 
         var todoRepository = new SqliteTodoRepository(connectionString);
         var categoryRepository = new SqliteCategoryRepository(connectionString);
+        // 캐릭터 오버레이는 아래에서 만들어지므로, 버스를 먼저 만들어 TodoService에 주입하고 구독은 그 뒤에 건다.
+        var todoEventBus = new TodoEventBus();
         var todoService = new TodoService(
             todoRepository,
             new SqliteCompletionLogStore(connectionString),
-            new NoOpTodoEventBus(),
+            todoEventBus,
             new SystemClock(),
             TimeSpan.FromMinutes(30));
 
@@ -88,6 +91,17 @@ public partial class MainWindow : Window
         _characterOverlay = new CharacterOverlayController(
             _characterPackService, _packsRootDir, builtInPackPath, _windowStateStore, _windowBehavior,
             BuildReactionService(_appSettingsStore.Load()));
+
+        // 할 일을 완료하면 캐릭터가 반응한다. 마감 임박/초과(TodoDueSoon/TodoOverdue)는 아직 연결하지 않았다 —
+        // CheckDueSoon을 부를 스케줄러가 없고, 중복 발행 방지가 없어 연결하면 매 검사마다 LLM을 부른다(KNOWN_ISSUES #15).
+        // Publish는 지금 UI 스레드에서 오지만, 백그라운드에서 올 CheckDueSoon을 대비해 디스패처를 거친다.
+        todoEventBus.Subscribe(todoEvent =>
+        {
+            if (todoEvent is not TodoCompleted completed)
+                return;
+
+            Dispatcher.UIThread.Post(() => _characterOverlay.ReactToTodoCompleted(completed.Item));
+        });
 
         // App.Mcp(Claude가 스폰하는 별도 프로세스)가 명명 파이프로 say/setExpression을 보내면 여기서 받는다.
         var ipcHandler = new CharacterIpcRequestHandler(_characterPackService, _characterOverlay, ActivateSelf);

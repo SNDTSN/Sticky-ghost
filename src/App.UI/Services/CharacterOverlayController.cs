@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using App.Core.Diagnostics;
+using App.Core.Domain.Events;
 using App.Core.Domain.Services;
 using App.Core.Infrastructure.FileSystem;
 using App.Platform;
@@ -30,6 +31,9 @@ public sealed class CharacterOverlayController
     private readonly IWindowBehavior _windowBehavior;
     private CharacterReactionService _reactionService;
     private CharacterWindow? _window;
+    // 캐릭터가 꺼진 동안 완료 반응을 건너뛴 사실은 한 번만 남긴다 — 완료마다 남기면 app.log가 완료 기록부가 된다.
+    // 창을 새로 만들 때 풀어서, 껐다 켜면 다음 꺼짐에 다시 한 번 남는다.
+    private bool _loggedTodoSkip;
 
     public CharacterOverlayController(
         CharacterPackService packService,
@@ -121,6 +125,7 @@ public sealed class CharacterOverlayController
                     _window = null;
             };
             _window = window;
+            _loggedTodoSkip = false;
             window.Show();
         }
         else if (_window.PackId != pack.Id)
@@ -145,6 +150,25 @@ public sealed class CharacterOverlayController
 
     /// <summary>UI 스레드에서 호출해야 한다.</summary>
     public void SetExpression(string expressionId) => _window?.ShowExpression(expressionId);
+
+    /// <summary>
+    /// 할 일 완료를 캐릭터에게 알린다. 캐릭터가 꺼져 있으면(_window가 null) 아무 일도 하지 않는다 —
+    /// 대사를 띄울 곳이 없는데 LLM을 부르면 요금만 나간다. 실제 반응 시점은 창이 디바운스로 정한다.
+    /// </summary>
+    public void ReactToTodoCompleted(TodoItemSnapshot item)
+    {
+        if (_window is { } window)
+        {
+            window.HandleTodoCompleted(item);
+            return;
+        }
+
+        if (_loggedTodoSkip)
+            return;
+
+        _loggedTodoSkip = true;
+        AppLog.Write("todo", "캐릭터가 꺼져 있어 완료 반응을 건너뜀(켜기 전까지 한 번만 남김)");
+    }
 
     public void FlushPlacement() => _window?.FlushPlacement();
 }

@@ -53,6 +53,14 @@ public sealed class CharacterReactionService
     public Task<LlmReactionResult> ReactToTodoAsync(TodoEvent todoEvent, CancellationToken cancellationToken) =>
         ReactAsync(DescribeTodoEvent(todoEvent), cancellationToken);
 
+    /// <summary>
+    /// 짧은 사이에 완료된 여러 할 일을 한 번의 반응으로 묶는다. otherCount는 latestTitle을 뺀 나머지 개수이고,
+    /// 0이면 단일 완료와 같은 문장이 된다. 어느 것을 latestTitle로 고를지(마지막에 체크한 것)는 호출부가 정한다.
+    /// </summary>
+    public Task<LlmReactionResult> ReactToTodoCompletionsAsync(
+        string latestTitle, int otherCount, CancellationToken cancellationToken) =>
+        ReactAsync(DescribeCompletions(latestTitle, otherCount), cancellationToken);
+
     public Task<LlmReactionResult> ReactToUserMessageAsync(string message, CancellationToken cancellationToken) =>
         ReactAsync($"사용자가 다음과 같이 말했다: {message}", cancellationToken);
 
@@ -118,11 +126,17 @@ public sealed class CharacterReactionService
     private static string DescribeTodoEvent(TodoEvent todoEvent) => todoEvent switch
     {
         TodoCreated e => $"'{e.Item.Title}'라는 새 할 일이 추가되었다.",
-        TodoCompleted e => $"'{e.Item.Title}' 할 일을 완료했다.",
+        TodoCompleted e => DescribeCompletions(e.Item.Title, 0),
         TodoDueSoon e => $"'{e.Item.Title}' 할 일의 마감이 {e.MinutesLeft}분 남았는데 아직 완료되지 않았다.",
         TodoOverdue e => $"'{e.Item.Title}' 할 일의 마감이 지났는데 아직 완료되지 않았다.",
         _ => throw new ArgumentOutOfRangeException(nameof(todoEvent)),
     };
+
+    // 단일 완료와 묶음 완료의 문장이 갈라지지 않도록 DescribeTodoEvent도 이 메서드를 거친다.
+    private static string DescribeCompletions(string latestTitle, int otherCount) =>
+        otherCount > 0
+            ? $"'{latestTitle}' 할 일 외 {otherCount}개의 할 일을 완료했다."
+            : $"'{latestTitle}' 할 일을 완료했다.";
 
     private static string Truncate(string text, int maxLength) =>
         text.Length <= maxLength ? text : text[..maxLength];

@@ -190,21 +190,74 @@ base + 눈감김 + 표정 10개면 약 360MB다. 마스크를 뽑는 동안 같�
 
 **개선 방향**: 연결당 `CancelAfter`(예: 5초)를 건 링크 토큰과 줄 길이 상한(예: 8KB). 클라이언트 응답 대기에도 같은 타임아웃.
 
-## 15. To-do 알림 설계 결함 — 이벤트 버스를 캐릭터에 연결하기 **전에** 손볼 것 (2026-09-20 점검)
+## 15. To-do 알림 설계 결함 — `CheckDueSoon`을 캐릭터에 연결하기 **전에** 손볼 것 (2026-09-20 점검, 2026-09-22 범위 축소)
 
-**어디**: `App.Core/Domain/Services/TodoService.cs`의 `CheckDueSoon`(`docs/todo-design.md` "핵심 흐름" 의사코드와 동일한 구조), `MainWindow`의 `NoOpTodoEventBus`.
+**어디**: `App.Core/Domain/Services/TodoService.cs`의 `CheckDueSoon`(`docs/todo-design.md` "핵심 흐름" 의사코드와 동일한 구조).
 
-**현재 상태**: 아무도 `CheckDueSoon`을 부르지 않고(스케줄러 없음), 이벤트 버스는 구독자 없는 `NoOpTodoEventBus`이며, `CharacterReactionService.ReactToTodoAsync`도
-호출자가 없다. 즉 "할 일 완료/마감 임박에 캐릭터가 반응"은 아직 동작하지 않는다(문서의 미체크 항목과 일치). 연결할 때 아래 결함이 그대로 드러난다.
+**현재 상태 (2026-09-22 갱신)**: **완료 반응은 연결됐다** — `TodoEventBus`가 `NoOpTodoEventBus`를 대신하고, `MainWindow`가 `TodoCompleted`만 구독해
+`CharacterOverlayController.ReactToTodoCompleted`로 넘긴다. 아래 결함은 전부 `CheckDueSoon` 경로의 것이라 완료 반응에는 걸리지 않는다.
+**마감 임박/초과는 아직 연결하지 않았다** — 여전히 `CheckDueSoon`을 부르는 스케줄러가 없고, 연결하면 아래 결함이 그대로 드러난다.
 
-**결함**:
+**남은 결함 2가지**:
 - 마감이 이미 지났는데 한 번도 알리지 않은 항목은 첫 분기(`minutesLeft <= threshold && !NotifiedDueSoon`)에 걸려 `TodoDueSoon(minutesLeft = 음수)`로 나간다.
   LLM 자극 문장이 "마감이 -300분 남았는데"가 된다.
 - `TodoOverdue`는 중복 방지 플래그가 없어 검사할 때마다(1분 주기 가정) 계속 발행된다. LLM에 연결하면 매분 API 호출 = 비용이다.
-- 마감 **시각**이 항상 00:00이다(입력이 `DatePicker`의 날짜뿐). 그래서 "오늘까지 할 일"이 그날 내내 마감 초과로 판정된다. 상세: #19-(3).
+
+**해결된 결함**: ~~마감 **시각**이 항상 00:00이다~~ → #19-(3)에서 `DueDateRule.FromDateOnly`가 날짜만 고른 마감을 그날 23:59:59로 맞추면서 해결됐다(2026-09-22).
 
 **개선 방향**: `dueDate < now` 분기를 먼저 검사하고, 초과 알림용 `NotifiedOverdue` 플래그를 추가한다(컬럼 추가는 #2의 `EnsureColumnExists` 방식으로 가능).
 또는 이벤트를 받는 쪽에서 (항목 id, 종류) 단위로 디바운스한다. `docs/todo-design.md`의 의사코드도 함께 고친다.
+
+### 15-1. 완료 반응 배선 (2026-09-22 구현, **실행 확인 완료**)
+
+**어디**: `App.Core/Domain/Events/TodoEventBus.cs`(신설), `CharacterReactionService`(`ReactToTodoCompletionsAsync`/`DescribeCompletions` 추가),
+`App.UI/Views/CharacterWindow.axaml.cs`(디바운스 배치), `App.UI/Services/CharacterOverlayController.cs`(`ReactToTodoCompleted`), `App.UI/Views/MainWindow.axaml.cs`(조립).
+
+**결정 (2026-09-22, 사용자)**:
+- **완료(`TodoCompleted`)만 구독한다.** `TodoCreated`도 발행되지만 할 일을 추가할 때마다 LLM을 부르면 비용이 두 배고, 추가는 보통 연달아 한다.
+- **연달아 완료하면 묶어서 한 번만 반응한다.** 단순 in-flight 게이트로는 "반응이 안 떠 있을 때 3개를 빠르게 체크"하면 첫 번째에 즉시 호출되고 나머지만 묶인다.
+  그래서 **1000ms 디바운스**로 바꿨다 — 체크가 멎으면 `'마지막에 체크한 제목' 할 일 외 n개의 할 일을 완료했다`로 한 번 넘긴다.
+  쓰다듬기 반응이 진행 중이면(`_reactionInFlight`) 타이머를 멈추지 않고 다음 Tick에 다시 본다(LLM 2회 동시 호출 방지).
+- **실패해도 폴백 대사를 띄우지 않는다.** 터치는 사용자가 직접 만진 것이라 반응이 없으면 고장으로 보이지만, 완료는 부수적 반응이라 조용한 편이 낫다.
+  그러지 않으면 API 키를 넣지 않은 사용자가 **할 일을 완료할 때마다** "설정에서 API 키부터 넣어줘야 해"를 보게 된다.
+- **캐릭터가 꺼져 있으면 LLM 호출 자체를 건너뛴다**(`_window`가 null이면 배치도 쌓이지 않는다). 대사를 띄울 곳이 없는데 부르면 요금만 나간다.
+
+**소소한 선택**: 부르는 제목은 **마지막에 체크한 것**(말풍선이 뜨는 시점에 가장 최근 행동). 같은 반복 항목을 두 번 완료하면 제목이 같아도 2개로 센다(드물어서 특례를 두지 않음).
+
+**함정**: `TodoEventBus.Publish`는 구독자 예외를 잡아 `AppLog`만 남긴다. `Publish`가 `CompleteTodo`의 **마지막 줄**이라, 구독자가 던지면
+완료 경로가 실패한 것처럼 보이고 호출부의 목록 갱신까지 막힌다(#23에서 정리한 실패 의미가 무너진다).
+`CharacterWindow`의 배치 타이머는 `OnClosed`에서 반드시 `Stop()` — 멈추지 않으면 Tick 람다가 잡은 창이 GC되지 않는다(메모 창에서 겪은 문제).
+
+**검증 (2026-09-22)**: `App.Core` 참조 콘솔 하네스로 11개 항목 추가 확인(#23의 18개와 합쳐 29개 전부 통과) —
+구독자 예외가 `Publish` 밖으로 새지 않고 던진 구독자 앞뒤가 모두 호출됨, 구독자가 던져도 `CompleteTodo`가 정상 완료·이력 기록,
+`DescribeCompletions`의 단일/묶음 문장, `DescribeTodoEvent`가 같은 문장을 쓰는 것(문장이 두 군데로 갈라지지 않음).
+
+**실행 확인 (2026-09-22, 사용자)**: ① 할 일 하나 완료 → 말풍선, ② 3개를 빠르게 체크 → 한 번만 반응하고 "외 2개" 반영,
+③ 캐릭터를 끈 상태로 완료 → 아무 일도 안 일어남, ④ API 키 없이 완료 → 조용함, ⑤ 쓰다듬는 중에 완료 → 터치 반응이 끝난 뒤 완료 반응. **다섯 가지 모두 의도대로.**
+
+### 15-2. 조용한 경로에 흔적 남기기 (2026-09-22)
+
+**계기 (사용자)**: ③④는 "아무 일도 안 일어남"이 정상인데, 로그가 없으니 **의도한 침묵인지 우연히 그렇게 된 건지 구별할 수 없었다.**
+확인이 안 되는 것도 문제지만, 더 큰 문제는 **나중에 이 경로가 깨져도 아무도 모른다**는 것이다.
+
+`AppLog`에는 레벨 개념이 없고 1MB 로테이션이라 **빈도가 곧 비용**이다(시끄러우면 다른 진단 기록을 밀어낸다). 두 경로의 빈도가 달라 다르게 다뤘다.
+
+- **LLM 실패로 건너뛴 경우** — `CharacterWindow.ReactToCompletions`에서 매번 남긴다: `완료 반응을 건너뜀 — {Failure}`.
+  빈도가 배치당 최대 한 줄이고 실패할 때만이라 부담이 없다. **`NotConfigured`의 유일한 흔적**이기도 하다 —
+  그 실패는 어댑터를 부르기 전(`CharacterReactionService.cs:93`)에 돌아가서 `LlmFailureLog`에 안 남는다.
+- **캐릭터가 꺼져 있어 건너뛴 경우** — `CharacterOverlayController.ReactToTodoCompleted`에서 **앱 실행당 한 번만**(`_loggedTodoSkip`, 사용자 결정).
+  이 지점은 디바운스 **이전**이라 완료마다 불린다. 매번 남기면 캐릭터를 꺼두고 쓰는 사용자의 `app.log`가 완료 기록부가 된다.
+  창을 새로 만들 때 플래그를 풀어서, 껐다 켜면 다음 꺼짐에 다시 한 번 남는다.
+
+**검증 (2026-09-22)**: 하네스에 4개 항목 추가(누적 33개 전부 통과) — 키 없는 `ISecretStore`로 `ReactToTodoCompletionsAsync`를 부르면
+`IsSuccess == false` / `Failure == NotConfigured`이고, **어댑터는 불리지 않으며**(키 검사가 먼저), 폴백 `Line`은 채워져 있다(우리가 안 띄울 뿐).
+즉 조용히 건너뛰는 분기가 실제로 그 값을 받는다.
+
+**실행 확인 (2026-09-22, 사용자)**: 캐릭터를 끈 채로 할 일 2개 완료 → `[todo] 캐릭터가 꺼져 있어...`가 **한 줄만**,
+캐릭터를 켰다 다시 끄고 완료 → 한 줄 더(플래그 리셋 동작), API 키를 지우고 완료 → `[todo] 완료 반응을 건너뜀 — NotConfigured`. **모두 의도대로.**
+
+**곁가지**: 15-1 실행 확인 중 `app.log`에 `[llm] Gemini ProviderError http=503`이 한 번 찍혔다(제공자 과부하).
+어느 반응에서 난 것인지는 그 기록만으로 알 수 없지만, 15-2의 로그가 있었다면 `[todo] 완료 반응을 건너뜀 — ProviderError`가 함께 남았을 상황이다.
 
 ---
 

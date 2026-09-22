@@ -27,6 +27,8 @@ public partial class CharacterWindow : Window
     // 이 거리(물리 px) 미만으로 움직이고 놓으면 이동이 아니라 클릭으로 본다(더블클릭 판정에서 필요).
     private const int MoveThresholdPx = 4;
     private const int ReactionDurationMs = 1500;
+    // 체크를 멈췄는지 판단하는 시간. 짧으면 덜 묶이고, 길면 반응이 굼떠 보인다.
+    private const int TodoBatchDebounceMs = 1000;
 
     private readonly Random _random = new();
     private readonly SpeechBubbleWindow _bubble = new();
@@ -52,6 +54,15 @@ public partial class CharacterWindow : Window
     private bool _isClosed;
     // 이전 LLM 응답을 기다리는 중이면 새 터치는 호출 자체를 하지 않는다(연타로 인한 과금 방지).
     private bool _reactionInFlight;
+
+    // 짧은 사이에 여러 개를 체크해도 완료마다 LLM을 부르지 않는다 — 디바운스로 묶어 한 번만 반응한다.
+    // 마지막에 체크한 제목과 개수만 들고 있다가, 체크가 멎으면 "'X' 할 일 외 n개"로 넘긴다.
+    private readonly DispatcherTimer _todoBatchTimer = new(DispatcherPriority.Background)
+    {
+        Interval = TimeSpan.FromMilliseconds(TodoBatchDebounceMs),
+    };
+    private string? _latestCompletedTitle;
+    private int _completedCount;
 
     private DispatcherTimer? _blinkTimer;
     private DispatcherTimer? _blinkCloseTimer;
@@ -92,6 +103,8 @@ public partial class CharacterWindow : Window
         _reactionService = reactionService;
         _stateStore = stateStore;
         _windowBehavior = windowBehavior;
+
+        _todoBatchTimer.Tick += (_, _) => FlushTodoBatch();
 
         RootCanvas.PointerPressed += OnPointerPressed;
         RootCanvas.PointerMoved += OnPointerMoved;
@@ -506,6 +519,87 @@ public partial class CharacterWindow : Window
         }
     }
 
+    /// <summary>
+    /// 할 일 하나가 완료됐음을 알린다. 곧바로 반응하지 않고 디바운스 타이머만 다시 건다 —
+    /// 연달아 체크하면 마지막 체크 뒤 <see cref="TodoBatchDebounceMs"/>ms가 지나야 한 번 반응한다.
+    /// </summary>
+    public void HandleTodoCompleted(TodoItemSnapshot item)
+    {
+        if (_isClosed)
+            return;
+
+        _latestCompletedTitle = item.Title;
+        _completedCount++;
+
+        _todoBatchTimer.Stop();
+        _todoBatchTimer.Start();
+    }
+
+    private void FlushTodoBatch()
+    {
+        if (_isClosed)
+        {
+            _todoBatchTimer.Stop();
+            return;
+        }
+
+        // 쓰다듬기 반응이 진행 중이면 LLM을 두 번 부르지 않도록 기다린다. 타이머를 멈추지 않고 다음 Tick에 다시 본다.
+        if (_reactionInFlight)
+            return;
+
+        _todoBatchTimer.Stop();
+        if (_completedCount == 0 || _latestCompletedTitle is not { } title)
+            return;
+
+        var otherCount = _completedCount - 1;
+        _latestCompletedTitle = null;
+        _completedCount = 0;
+
+        ReactToCompletions(title, otherCount);
+    }
+
+    // HandleTouchEvent와 같은 뼈대다. 다른 점은 실패했을 때 폴백 대사를 띄우지 않는 것 —
+    // 터치는 사용자가 직접 만진 것이라 반응이 없으면 고장으로 보이지만, 할 일 완료는 부수적 반응이라
+    // 조용히 넘어가는 편이 낫다(API 키를 넣지 않은 사용자가 완료할 때마다 안내 대사를 보게 된다).
+    private async void ReactToCompletions(string latestTitle, int otherCount)
+    {
+        _reactionInFlight = true;
+        try
+        {
+            var result = await _reactionService!.ReactToTodoCompletionsAsync(
+                latestTitle, otherCount, _windowCts.Token);
+            if (_isClosed)
+                return;
+
+            if (!result.IsSuccess)
+            {
+                // 폴백 대사를 띄우지 않기로 했으므로, 건너뛴 사실은 로그로만 남는다. 이 한 줄이 없으면
+                // "의도한 침묵"과 "조용히 깨진 경로"를 구별할 수 없다. NotConfigured는 어댑터를 부르기 전에
+                // 돌아가서 LlmFailureLog에도 안 남으므로, 그 실패의 유일한 흔적이기도 하다.
+                AppLog.Write("todo", $"완료 반응을 건너뜀 — {result.Failure}");
+                return;
+            }
+
+            if (result.ExpressionId is not null)
+                ShowExpression(result.ExpressionId);
+            if (result.Line is not null)
+                ShowLine(result.Line);
+        }
+        catch (OperationCanceledException)
+        {
+            // 창이 닫히면서 취소된 경우 — 무시.
+        }
+        catch (Exception ex)
+        {
+            // async void라 여기서 새는 예외는 프로세스 종료로 이어진다(HandleTouchEvent와 같은 이유).
+            AppLog.Write("ui", ex);
+        }
+        finally
+        {
+            _reactionInFlight = false;
+        }
+    }
+
     /// <summary>말풍선으로 대사를 띄운다. 이미 떠 있으면 텍스트를 교체하고 표시 시간을 다시 잰다.</summary>
     public void ShowLine(string text)
     {
@@ -583,6 +677,8 @@ public partial class CharacterWindow : Window
     {
         _isClosed = true;
         StopAnimationTimers();
+        // 멈추지 않으면 Tick 람다가 잡은 이 창이 GC되지 못한다(메모 창에서 같은 문제를 겪었다).
+        _todoBatchTimer.Stop();
         _windowCts.Cancel();
         _windowCts.Dispose();
         _bubble.Close();
