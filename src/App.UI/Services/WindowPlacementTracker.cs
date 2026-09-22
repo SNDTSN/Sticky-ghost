@@ -1,4 +1,6 @@
 using System;
+using System.IO;
+using App.Core.Diagnostics;
 using App.Core.Infrastructure.FileSystem;
 using Avalonia;
 using Avalonia.Controls;
@@ -111,11 +113,21 @@ public sealed class WindowPlacementTracker : IDisposable
         if (_window.WindowState != WindowState.Normal)
             return;
 
-        _store.Save(_key, new WindowPlacement(
-            _window.Position.X,
-            _window.Position.Y,
-            _trackSize ? _window.Width : null,
-            _trackSize ? _window.Height : null));
+        try
+        {
+            _store.Save(_key, new WindowPlacement(
+                _window.Position.X,
+                _window.Position.Y,
+                _trackSize ? _window.Width : null,
+                _trackSize ? _window.Height : null));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // 사용자가 요청한 저장이 아니라 창을 옮길 때마다 알아서 하는 저장이다. 여기서 다이얼로그를 띄우면
+            // 드래그 중에 팝업이 뜨고 Closing에서는 종료가 막힌다. 잃는 것은 창 위치 하나이고 다음 이동 때 다시 저장되므로,
+            // 기록만 남기고 넘어간다(KNOWN_ISSUES #21).
+            AppLog.Write("window-state", ex);
+        }
     }
 
     public void Dispose() => _saveTimer.Stop();

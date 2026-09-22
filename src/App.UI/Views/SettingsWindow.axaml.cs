@@ -1,5 +1,8 @@
+using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using App.Core.Diagnostics;
 using App.Core.Domain.Services;
 using App.Core.Infrastructure.FileSystem;
 using App.Core.Infrastructure.Llm;
@@ -129,14 +132,29 @@ public partial class SettingsWindow : Window
             SelectedCharacterPackId = (CharacterPackComboBox.SelectedItem as CharacterPackScanEntry)?.Id,
         };
 
-        _settingsStore!.Save(_settings);
+        // 저장은 사용자가 버튼을 눌러 요청한 것이라 실패를 조용히 묻으면 안 된다(KNOWN_ISSUES #21).
+        // 백신/동기화 도구가 파일을 잡고 있는 등으로 실패하면, 창을 닫지 않고 그 자리에서 알린다 —
+        // 입력한 값이 남아 있어야 다시 시도할 수 있다.
+        try
+        {
+            _settingsStore!.Save(_settings);
 
-        // 비워두면 기존 키를 그대로 둔다 — 매번 재입력을 강요하지 않기 위해.
-        // 붙여넣기로 딸려온 앞뒤 공백/개행은 HTTP 헤더 값으로 못 쓰는 경우가 있어 저장 전에 잘라낸다.
-        var key = ApiKeyTextBox.Text?.Trim();
-        if (!string.IsNullOrEmpty(key))
-            _secretStore!.SaveSecret(LlmProviderCatalog.ApiKeySecretName(provider), key);
+            // 비워두면 기존 키를 그대로 둔다 — 매번 재입력을 강요하지 않기 위해.
+            // 붙여넣기로 딸려온 앞뒤 공백/개행은 HTTP 헤더 값으로 못 쓰는 경우가 있어 저장 전에 잘라낸다.
+            var key = ApiKeyTextBox.Text?.Trim();
+            if (!string.IsNullOrEmpty(key))
+                _secretStore!.SaveSecret(LlmProviderCatalog.ApiKeySecretName(provider), key);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            AppLog.Write("settings", ex);
+            SaveErrorText.Text = "설정을 저장하지 못했습니다. 다른 프로그램(백신·동기화 도구 등)이 파일을 사용 중일 수 있습니다.\n"
+                                 + $"잠시 후 다시 시도해 주세요. ({ex.Message})";
+            SaveErrorText.IsVisible = true;
+            return;
+        }
 
+        SaveErrorText.IsVisible = false;
         Close();
     }
 

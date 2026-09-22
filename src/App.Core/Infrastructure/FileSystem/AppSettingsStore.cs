@@ -1,4 +1,5 @@
 using System.Text.Json;
+using App.Core.Diagnostics;
 
 namespace App.Core.Infrastructure.FileSystem;
 
@@ -32,6 +33,11 @@ public sealed class AppSettingsStore
         _filePath = filePath;
     }
 
+    /// <summary>
+    /// 저장된 설정을 읽는다. **어떤 이유로든 실패하면 예외 대신 기본값을 돌려준다** —
+    /// 이 호출은 MainWindow 생성자 경로에 있어서, 예외가 올라가면 설정 파일 하나 때문에 앱이 아예 못 뜬다.
+    /// 무엇 때문에 기본값으로 돌아갔는지는 AppLog에 남긴다(증상이 "설정이 저절로 초기화됨"이라 기록이 없으면 추적이 어렵다).
+    /// </summary>
     public AppSettings Load()
     {
         if (!File.Exists(_filePath))
@@ -42,19 +48,24 @@ public sealed class AppSettingsStore
             var json = File.ReadAllText(_filePath);
             return JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
         }
-        catch (JsonException)
+        catch (JsonException ex)
         {
             // 설정 파일이 손상됐다고 앱을 못 띄우게 막을 이유는 없다 — 기본값으로 복구.
+            AppLog.Write("settings", ex);
+            return new AppSettings();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // 백신/동기화 도구가 파일을 잠깐 잡고 있거나 권한이 없는 경우. 읽기 실패도 기동을 막지 않는다.
+            AppLog.Write("settings", ex);
             return new AppSettings();
         }
     }
 
-    public void Save(AppSettings settings)
-    {
-        var directory = Path.GetDirectoryName(_filePath);
-        if (!string.IsNullOrEmpty(directory))
-            Directory.CreateDirectory(directory);
-
-        File.WriteAllText(_filePath, JsonSerializer.Serialize(settings, SerializerOptions));
-    }
+    /// <summary>
+    /// 설정을 저장한다. **실패하면 예외를 던진다** — 이 저장은 사용자가 "저장" 버튼을 눌러 요청한 것이므로
+    /// 조용히 묻히면 안 된다(SettingsWindow가 잡아서 알린다). 알릴 수 없는 자리에서 부를 거면 호출부가 잡아야 한다.
+    /// </summary>
+    public void Save(AppSettings settings) =>
+        AtomicFile.WriteAllText(_filePath, JsonSerializer.Serialize(settings, SerializerOptions));
 }
