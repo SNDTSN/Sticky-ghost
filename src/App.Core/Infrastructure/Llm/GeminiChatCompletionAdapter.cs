@@ -39,6 +39,8 @@ public sealed class GeminiChatCompletionAdapter : ICharacterLlmAdapter
         {
             // API 키에 헤더로 못 보내는 문자(개행 등)가 섞인 경우 — Headers.Add가 FormatException을 던진다.
             // 사실상 잘못된 키이므로 인증 실패로 분류한다.
+            // 예외 자체는 메시지에 키가 들어 있어 남길 수 없지만, 사유 식별자만은 안전하게 남긴다.
+            LlmFailureLog.Write(LlmProviderCatalog.Gemini, _model, LlmFailure.Unauthorized, reason: "malformed-key-header");
             return LlmReactionResult.Failed(LlmFailure.Unauthorized);
         }
 
@@ -52,10 +54,12 @@ public sealed class GeminiChatCompletionAdapter : ICharacterLlmAdapter
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             // 호출자가 취소한 게 아니라면(자체 15초 타임아웃이든, HttpClient 기본 타임아웃이든) 전부 Timeout으로 분류.
+            LlmFailureLog.Write(LlmProviderCatalog.Gemini, _model, LlmFailure.Timeout);
             return LlmReactionResult.Failed(LlmFailure.Timeout);
         }
         catch (HttpRequestException)
         {
+            LlmFailureLog.Write(LlmProviderCatalog.Gemini, _model, LlmFailure.NetworkError);
             return LlmReactionResult.Failed(LlmFailure.NetworkError);
         }
 
@@ -64,15 +68,22 @@ public sealed class GeminiChatCompletionAdapter : ICharacterLlmAdapter
             // 2026-06 기준 신규 발급 키(AQ. 접두, 구글 클라우드 서비스 계정에 묶인 Auth key)는 인증 실패 시
             // 401을 돌려주는 사례가 보고됨 — 구 Standard key(AIzaSy 접두)의 403/400과 다름. 둘 다 커버해야 한다.
             if (response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized)
+            {
+                LlmFailureLog.Write(LlmProviderCatalog.Gemini, _model, LlmFailure.Unauthorized, response.StatusCode);
                 return LlmReactionResult.Failed(LlmFailure.Unauthorized);
+            }
 
             if (!response.IsSuccessStatusCode)
             {
                 // 구 Standard key는 키 오류도 400(Bad Request)으로 뭉뚱그려 반환하는 경우가 있었다 — 본문 메시지로
                 // "API 키 문제"인지 그냥 잘못된 요청인지 구분해야 사용자에게 정확한 폴백 문구를 보여줄 수 있다.
                 if (response.StatusCode == HttpStatusCode.BadRequest && await LooksLikeApiKeyErrorAsync(response, linkedCts.Token))
+                {
+                    LlmFailureLog.Write(LlmProviderCatalog.Gemini, _model, LlmFailure.Unauthorized, response.StatusCode);
                     return LlmReactionResult.Failed(LlmFailure.Unauthorized);
+                }
 
+                LlmFailureLog.Write(LlmProviderCatalog.Gemini, _model, LlmFailure.NetworkError, response.StatusCode);
                 return LlmReactionResult.Failed(LlmFailure.NetworkError);
             }
 
@@ -83,10 +94,16 @@ public sealed class GeminiChatCompletionAdapter : ICharacterLlmAdapter
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
+                LlmFailureLog.Write(LlmProviderCatalog.Gemini, _model, LlmFailure.Timeout);
                 return LlmReactionResult.Failed(LlmFailure.Timeout);
             }
 
-            return ParseResponse(body);
+            // ParseResponse는 순수 함수로 두고(본문만 받음), 로깅은 모델명을 아는 이 자리에서 한 번만 한다.
+            var result = ParseResponse(body);
+            if (!result.IsSuccess && result.Failure is { } failure)
+                LlmFailureLog.Write(LlmProviderCatalog.Gemini, _model, failure);
+
+            return result;
         }
     }
 

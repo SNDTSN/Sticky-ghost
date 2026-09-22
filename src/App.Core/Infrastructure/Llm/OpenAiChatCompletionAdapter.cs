@@ -43,6 +43,8 @@ public sealed class OpenAiChatCompletionAdapter : ICharacterLlmAdapter
         catch (FormatException)
         {
             // API 키에 헤더로 못 보내는 문자(개행 등)가 섞인 경우 — 사실상 잘못된 키이므로 인증 실패로 분류한다.
+            // 예외 자체는 메시지에 키가 들어 있어 남길 수 없지만, 사유 식별자만은 안전하게 남긴다.
+            LlmFailureLog.Write(LlmProviderCatalog.OpenAi, _model, LlmFailure.Unauthorized, reason: "malformed-key-header");
             return LlmReactionResult.Failed(LlmFailure.Unauthorized);
         }
 
@@ -56,20 +58,28 @@ public sealed class OpenAiChatCompletionAdapter : ICharacterLlmAdapter
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             // 호출자가 취소한 게 아니라면(자체 15초 타임아웃이든, HttpClient 기본 타임아웃이든) 전부 Timeout으로 분류.
+            LlmFailureLog.Write(LlmProviderCatalog.OpenAi, _model, LlmFailure.Timeout);
             return LlmReactionResult.Failed(LlmFailure.Timeout);
         }
         catch (HttpRequestException)
         {
+            LlmFailureLog.Write(LlmProviderCatalog.OpenAi, _model, LlmFailure.NetworkError);
             return LlmReactionResult.Failed(LlmFailure.NetworkError);
         }
 
         using (response)
         {
             if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                LlmFailureLog.Write(LlmProviderCatalog.OpenAi, _model, LlmFailure.Unauthorized, response.StatusCode);
                 return LlmReactionResult.Failed(LlmFailure.Unauthorized);
+            }
 
             if (!response.IsSuccessStatusCode)
+            {
+                LlmFailureLog.Write(LlmProviderCatalog.OpenAi, _model, LlmFailure.NetworkError, response.StatusCode);
                 return LlmReactionResult.Failed(LlmFailure.NetworkError);
+            }
 
             string body;
             try
@@ -78,10 +88,16 @@ public sealed class OpenAiChatCompletionAdapter : ICharacterLlmAdapter
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
+                LlmFailureLog.Write(LlmProviderCatalog.OpenAi, _model, LlmFailure.Timeout);
                 return LlmReactionResult.Failed(LlmFailure.Timeout);
             }
 
-            return ParseResponse(body);
+            // ParseResponse는 순수 함수로 두고(본문만 받음), 로깅은 모델명을 아는 이 자리에서 한 번만 한다.
+            var result = ParseResponse(body);
+            if (!result.IsSuccess && result.Failure is { } failure)
+                LlmFailureLog.Write(LlmProviderCatalog.OpenAi, _model, failure);
+
+            return result;
         }
     }
 
