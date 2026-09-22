@@ -507,12 +507,37 @@ OpenAI 어댑터는 401만 인증 실패로 보므로 403(권한/지역 차단)�
 
 **개선 방향**: 파이프 이름에도 세션 구분을 넣는다(예: 세션 ID나 사용자 SID를 접미사로). 계약이 바뀌므로 `App.Mcp`와 `App.UI`가 같은 규칙으로 이름을 만들어야 한다.
 
-## 23. 사소한 것들 (2026-09-20 재점검)
+## 23. ~~사소한 것들~~ — 해결됨 (2026-09-22, 실행 확인 대기)
 
-- **`CharacterOverlayController`의 클래스 주석이 엉뚱한 곳에 붙어 있다**: `App.UI/Services/CharacterOverlayController.cs` 위쪽의 컨트롤러 설명 `<summary>`가
-  바로 아래 `PackApplyResult` 레코드에 붙어 있다(`<summary>`가 두 개 연속이라 IDE/문서 생성기에는 레코드 설명으로 보인다). 컨트롤러 `class` 선언 위로 옮기면 된다.
-- **`TodoService.CompleteTodo`의 쓰기 순서**: `_completionLog.Append`가 `_repository.Save(item)`보다 먼저이고 둘은 별도 커넥션이라 트랜잭션을 공유하지 않는다.
-  `Save`가 실패하면 완료 로그만 남고 항목은 미완료로 남는다. 지금은 로컬 SQLite라 실패가 드물다.
+- **~~`CharacterOverlayController`의 클래스 주석이 엉뚱한 곳에 붙어 있다~~**: 컨트롤러 설명 `<summary>`가 바로 아래 `PackApplyResult` 레코드에 붙어 있었다
+  (`<summary>`가 두 개 연속이라 IDE/문서 생성기에는 레코드 설명으로 보인다). 블록을 `public sealed class CharacterOverlayController` 선언 위로 옮겼다. 코드 토큰 변화 없음.
+- **~~`TodoService.CompleteTodo`의 쓰기 순서~~**: `_completionLog.Append`가 `_repository.Save(item)`보다 먼저였고 둘은 별도 커넥션이라 트랜잭션을 공유하지 않는다.
+
+### 23-b 쓰기 순서 — 결정과 근거 (2026-09-22)
+
+두 쓰기를 한 트랜잭션으로 묶는 것이 정석이지만 `ITodoRepository`/`ICompletionLogStore` 양쪽에 커넥션(UnitOfWork)을 흘려보내야 해서,
+로컬 SQLite 단일 프로세스에는 과하다고 보고 **순서로 "무엇을 잃을지"만 정했다**(사용자 판단).
+
+- **`Save` → `Append`로 교체**: 사용자가 보는 진실은 `TodoItem` 행이고 `CompletionLog`는 부수 기록이다.
+  교체 전에는 `Save`가 실패하면 **로그에만 완료가 남고 화면의 체크는 되돌아갔다**. 교체 후에는 `Save` 실패 시 아무 것도 남지 않고 예외가 호출부로 올라간다.
+- **`Append` 실패는 삼키고 `AppLog.Write("todo", ex)`만 남긴다**: 여기서 예외를 올리면 `MainViewModel.CompleteTodo`의 `RefreshItem(id)`가 건너뛰어져
+  "DB엔 완료인데 화면은 그대로"가 되고 미처리 예외 경로(#10)로 빠진다. 순서만 바꾸고 예외를 올리면 반쪽짜리가 된다.
+- **잃는 것이 작다**: `CompletionCount`는 `TodoItem` 행에 있어 `Save`와 함께 살아남는다. `CompletionLog`가 유일하게 갖는 건
+  그 한 회차의 **완료 시각 + 당시 체크리스트 스냅샷**이고, 현재 이 테이블을 **읽는 코드가 없다**(통계 기능 이전까지 영향 0).
+- **`catch (Exception)`으로 넓게 잡는 이유**: `TodoService`는 도메인 계층이라 `SqliteException`을 이름으로 부를 수 없다(부르면 `Microsoft.Data.Sqlite`를 물게 된다).
+  `Append`는 `INSERT` 한 번이 전부라 숨길 버그가 거의 없다. 같은 계층의 `CharacterReactionService`도 같은 모양이다.
+
+**위험도 평가**: `Save`가 먼저 던지므로 디스크 꽉 참·손상·권한 같은 진짜 DB 오류는 **`Save`에서 걸러져 정상적으로 올라간다**(삼켜지지 않는다).
+FK 위반(`Get` 성공 + `Save`가 방금 그 행을 씀), PK 충돌(`Guid.NewGuid()`), NOT NULL 위반은 스키마상 불가능하다.
+남는 현실적 원인은 두 쓰기 사이 몇 ms의 디스크 꽉 참, 또는 외부 프로세스(백신/백업)의 순간 잠금 정도다.
+참고로 `journal_mode`/`busy_timeout` 설정이 없어(기본 rollback journal, 재시도 0) 잠금 충돌 시 즉시 실패하지만, 앱 안의 DB 쓰기는 전부 UI 디스패처 스레드라 자기들끼리 경합하지 않는다.
+
+**검증 (2026-09-22)**: `App.Core`를 참조하는 콘솔 하네스로 가짜 저장소를 물려 **18개 항목 확인(전부 통과)** —
+정상 완료 시 호출 순서가 `save,append,publish`, 이력 실패 시 예외가 새지 않고 완료·`CompletionCount`·`TodoCompleted` 이벤트가 모두 살아남음,
+항목 저장 실패 시 예외가 전파되고 **이력이 남지 않음**(교체 전에는 남았다), 반복 항목에서 스냅샷이 롤오버로 체크가 지워지기 전 값(`"IsChecked":true`)임.
+실제 `app.log`에 `[todo] ... append boom` 항목이 찍히는 것도 확인했다(검증 흔적은 지움).
+
+**실행 확인 필요**: 할 일 완료 시 평소 동작(체크 → 목록 갱신 → 캐릭터 반응), 반복 항목 완료 시 다음 마감일로 굴러가는지.
 
 ## 24. "+ 할 일 추가" 입력창에서 한글 입력이 깨짐 — **해결됨 (2026-09-22)**
 

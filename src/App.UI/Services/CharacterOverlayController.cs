@@ -9,17 +9,17 @@ using App.UI.Views;
 
 namespace App.UI.Services;
 
-/// <summary>
-/// 상시 캐릭터 오버레이 창의 생명주기(표시/숨김, 팩 교체, 배율)를 설정값에 맞춰 관리한다.
-/// MainWindow는 Apply(settings)만 호출하고, App.Mcp IPC 핸들러도 창을 직접 붙잡지 않고 이 컨트롤러를 거친다.
-/// 창은 하나만 유지하며 설정이 바뀌어도 새로 만들지 않고 내용만 교체한다(끄면 닫고, 다시 켜면 새로 만든다).
-/// </summary>
 /// <summary>UsedFallback이면 사용자가 고른 팩을 그리지 못해 내장 팩으로 대체했다는 뜻이고, FailureReason은 원인 메시지.</summary>
 public sealed record PackApplyResult(bool UsedFallback, string? FailureReason = null)
 {
     public static PackApplyResult Applied { get; } = new(false);
 }
 
+/// <summary>
+/// 상시 캐릭터 오버레이 창의 생명주기(표시/숨김, 팩 교체, 배율)를 설정값에 맞춰 관리한다.
+/// MainWindow는 Apply(settings)만 호출하고, App.Mcp IPC 핸들러도 창을 직접 붙잡지 않고 이 컨트롤러를 거친다.
+/// 창은 하나만 유지하며 설정이 바뀌어도 새로 만들지 않고 내용만 교체한다(끄면 닫고, 다시 켜면 새로 만든다).
+/// </summary>
 public sealed class CharacterOverlayController
 {
     private readonly CharacterPackService _packService;

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using App.Core.Diagnostics;
 using App.Core.Domain.Entities;
 using App.Core.Domain.Events;
 using App.Core.Domain.Repositories;
@@ -80,7 +81,6 @@ public sealed class TodoService
         item.CompletionCount += 1;
         item.IsCompleted = true;
         item.CompletedAt = now;
-        _completionLog.Append(id, now, checklistSnapshot);
 
         // 반복 롤오버로 item이 더 바뀌기 전, "방금 완료된 회차" 그대로 이벤트용 스냅샷을 떠 둔다.
         var completedEventSnapshot = TodoItemSnapshot.From(item);
@@ -102,6 +102,22 @@ public sealed class TodoService
         }
 
         _repository.Save(item);
+
+        // 완료 이력은 TodoItem 행이 저장된 뒤에 남긴다. 둘은 커넥션이 달라 트랜잭션을 공유하지 않으므로,
+        // 실패했을 때 무엇을 잃을지를 순서로 정한다 — 사용자가 보는 진실은 TodoItem 행이고 이력은 부수 기록이다.
+        // 이력 쓰기가 실패해도 완료 자체는 되돌리지 않고 기록만 남긴다. 여기서 예외를 올리면 호출부(MainViewModel)의
+        // 목록 갱신이 건너뛰어져 "DB엔 완료인데 화면은 그대로"가 된다. CompletionCount는 TodoItem에 있어 함께 살아남고,
+        // 잃는 것은 그 한 회차의 완료 시각과 체크리스트 스냅샷뿐이다(KNOWN_ISSUES #23).
+        // 도메인 계층이라 SqliteException을 이름으로 부를 수 없어 넓게 잡는다 — Append는 INSERT 한 번이 전부다.
+        try
+        {
+            _completionLog.Append(id, now, checklistSnapshot);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Write("todo", ex);
+        }
+
         _eventBus.Publish(new TodoCompleted(completedEventSnapshot));
     }
 
