@@ -80,6 +80,9 @@ ADD COLUMN`으로 안 되는 구조 변경, 또는 앞으로 추가될 컬럼마
 원인은 `IWindowBehavior`가 no-op Stub이었던 것. `WindowsWindowBehavior.SetAlwaysOnTop`(`SetWindowPos(HWND_TOPMOST)`)을 구현해
 주입했다. 📌 토글 시 다른 창 위에 고정되는 것을 사용자가 직접 확인했다.
 
+**2026-09-22 후속**: 이때 택한 "네이티브로 직접 올린다"는 방식이 #25의 원인이 되었다. 📌은 Avalonia의 `Topmost` 바인딩으로 옮기고
+`SetAlwaysOnTop`은 인터페이스에서 제거했다 — 📌의 동작 자체는 그대로다.
+
 ## 8. ~~캐릭터 오버레이 창 — 투명 영역이 뒤에 있는 창 클릭을 막음~~ → `SetInputShape`로 해결 (2026-09-20, 사용자 실행 확인 완료)
 
 v1의 사각형 히트박스는 실제로 불편했다(설정 버튼이 캐릭터의 투명 부분에 가려져 눌리지 않음). `IWindowBehavior.SetInputShape`
@@ -418,7 +421,7 @@ OpenAI 어댑터는 401만 인증 실패로 보므로 403(권한/지역 차단)�
 목록의 `yyyy-MM-dd` 표시(23:59:59가 새지 않음)까지 전부 의도대로. **`IsChecked="{Binding !NewRecurMonthEndMode}"`
 역방향 양방향 바인딩이 Avalonia에서 정상 동작함을 확인했다** — 체크박스 후퇴안은 필요 없었다.
 
-**곁가지(이 이슈와 무관)**: 미리보기·목록의 `🔁`가 네모로 보인다. 반복 기능이 아니라 이모지 폰트 문제이고 이전부터 그랬다.
+**곁가지(이 이슈와 무관)**: 미리보기·목록의 `🔁`가 네모로 보였다가, 화살표만 보였다가 한다(emoji 폰트가 고정되어 있지 않고 앱을 실행할 때마다 바뀌고 있음). 문서에는 #19 수정 도중 기록되었으나 이전부터 그랬다.
 
 ## 20. ~~메모 창을 최소화하면 저장된 위치가 오염됨~~ — 증상 해결됨 (2026-09-22, 근본 통합은 20-1로 남김)
 
@@ -698,3 +701,76 @@ main.Opened += (_, _) =>          // ← Opened는 활성화 뒤에 온다. 여�
 
 재현 방법: 앱 실행 → 한/영으로 한글 입력 모드 전환 → `할 일 추가 테스트` 입력.
 `할할 일일 추가가 테스트트`(중복) 또는 `할 일 가 트`(조합 유실)가 된다. 다른 앱으로 포커스가 한 번 갔다 오면 정상으로 돌아온다.
+
+## 25. ~~📌(항상 위 표시)를 켠 메모 창에서 삭제 확인 대화상자가 메모 뒤로 숨음~~ — 해결됨 (2026-09-22, **실행 확인 완료**)
+
+**어디**: `App.UI/Views/MemoWindow.axaml(.cs)`, `App.UI/ViewModels/MemoNoteViewModel.cs`, `App.UI/Views/ConfirmDialog.axaml.cs`,
+`App.UI/Views/MainWindow.axaml.cs`, `App.Platform/IWindowBehavior.cs`, `App.Platform.Stub/StubWindowBehavior.cs`,
+`App.Platform.Windows/WindowsWindowBehavior.cs`.
+
+**증상**: 📌을 켠 메모에서 ✕를 누르면 "이 메모를 삭제하시겠습니까?" 확인창이 메모 **뒤에** 뜬다. 대화상자가 모달이라
+메모 창은 입력을 받지 않고, 보이지도 않는 확인창이 응답을 기다리므로 **사용자가 빠져나갈 방법이 없다**.
+(내용이 빈 메모는 확인 없이 삭제되므로 이 경로를 타지 않는다.)
+
+**원인**: Windows의 Z순서는 topmost 대역과 일반 대역이 완전히 분리돼 있어, **소유자 관계나 모달 여부와 무관하게**
+일반 대역 창은 topmost 창 아래로 간다. Windows가 topmost를 소유 창들에 전파해주는 것은 `SetWindowPos`를 호출하는
+**그 시점에 이미 존재하는** 창들뿐인데, 확인 대화상자는 그보다 나중에 만들어지므로 해당되지 않는다.
+
+더 근본적인 것은 **📌을 Avalonia 밖에서 처리하고 있었다**는 점이다(#7에서 그렇게 만들었다). `IWindowBehavior.SetAlwaysOnTop` →
+`SetWindowPos(HWND_TOPMOST)`로 창을 직접 올렸기 때문에 `MemoWindow.Topmost`는 계속 false였고, 그래서 `ConfirmDialog`가
+`owner.Topmost`를 물려받을 수도, UI 코드가 "내 소유자가 위에 떠 있나"를 물어볼 수도 없었다.
+**경계 위반이 곧 버그의 원인이었지, 버그와 별개인 코드 냄새가 아니었다.**
+
+**수정**:
+- 📌 → `MemoWindow.axaml`의 `Topmost="{Binding IsPinned}"`. `MemoNoteViewModel`에서 `IWindowBehavior`/`_windowHandle`/
+  `AttachWindowHandle`을 통째로 제거했다(이 핸들은 오직 `SetAlwaysOnTop`에만 쓰이고 있었다).
+- `ConfirmDialog.ShowAsync`가 `Topmost = owner.Topmost`로 대화상자를 만든다. "대화상자는 소유자만큼은 위에 있어야 한다"를
+  한 곳에서 보장하므로, 앞으로 topmost 창에서 확인창을 띄워도 호출부가 따로 기억할 것이 없다.
+- `IWindowBehavior`에서 `SetAlwaysOnTop`과 `ExcludeFromTaskbar`를 제거했다(Stub/Windows 구현 포함). 후자는 호출부 0개 ·
+  양쪽 구현 no-op인 죽은 코드였고 실제 일은 `ShowInTaskbar="False"`가 하고 있었다. 인터페이스 doc 주석이
+  *"Avalonia 속성(`Topmost`, `ShowInTaskbar` …)으로 되는 것은 여기 넣지 않는다"*고 명시한 바로 그 두 이름이다.
+  남은 `IWindowBehavior`는 `SetClickThrough`/`SetInputShape`/`RestoreImeBinding` — 전부 Avalonia로 안 되는 진짜 네이티브 항목이다.
+  판단 기준과 Mac 주의사항은 `docs/PORTING.md`의 "여기에 넣지 않는 것" 절에 정리했다.
+
+**경계 점검 결과 (2026-09-22)**: "`App.UI`는 Windows 구현을 모른다"는 원칙 자체는 컴파일러가 강제하고 있었다 — `App.UI`의
+TargetFramework이 `net8.0`(`net8.0-windows` 아님)이고 참조도 `App.Core` + `App.Platform`(인터페이스 전용)뿐이며,
+조립은 `App.Windows/Program.cs`가 델리게이트로만 한다(팩토리가 없으면 Stub 폴백이 아니라 예외 — #6 정리 상태 유지).
+`App.Platform`은 프로젝트/패키지 참조가 0개다. 새고 있던 것은 위 두 메서드뿐이었고,
+`InputShapeBuilder`의 `System.Runtime.InteropServices`는 Avalonia 프레임버퍼용 `Marshal.Copy`라 Win32와 무관하다.
+핸들을 `IntPtr`로만 넘기는 문제는 성격이 달라 #26으로 분리했다.
+
+**검증**: `App.Windows` 빌드 통과(기존 AVLN3001 외 경고·오류 0). 창 Z순서 동작이라 앱 없이 로직으로 확인할 수 있는 부분이 없다 —
+아래 실행 확인이 곧 검증이다.
+
+**실행 확인 (2026-09-22, 사용자)**: 아래 8가지 **전부 통과**. 📌 메모 3개를 동시에 띄우고 각각 ✕를 누른 스크린샷에서 확인창 3개가 모두 자기 메모 위에 떠 있고, 탐색기 위에 고정된 📌 메모도 그대로였다.
+
+**확인 시나리오**:
+1. 내용이 있는 메모에서 📌을 **켜고** ✕ → 확인창이 **메모 위에** 보이는가. "취소"로 메모가 남고, 다시 ✕ → "확인"으로 삭제되는가.
+2. 📌을 **끈** 메모에서 ✕ → 예전처럼 정상으로 뜨는가(회귀).
+3. 📌을 켠 채 확인창이 떠 있는 동안 다른 앱 창(브라우저 등)을 클릭해 앞으로 가져온다 → 메모와 확인창이 **둘 다** 그 위에 남는가.
+4. 📌 자체 회귀: 📌을 켠 메모가 다른 앱 위에 계속 떠 있고, 끄면 다시 뒤로 가는가.
+5. 📌 상태 저장 회귀: 📌을 켠 채 앱을 껐다 켜면 그 메모가 📌이 켜진 채(= 다른 창 위에) 복원되는가.
+   — 이번 수정으로 창을 올리는 주체가 바뀌었으므로 **복원 경로를 꼭 봐야 한다**.
+6. 메모를 여러 개 띄우고 일부만 📌을 켠 뒤 각각 ✕ → 확인창이 항상 **자기 메모 위에** 뜨는가.
+7. 캐릭터 창(항상 Topmost)과 📌 메모가 같이 떠 있을 때 확인창이 캐릭터에 가리는지. 가려도 조작은 되지만,
+   가리지 않는 게 정상 기대값이다(확인창이 마지막에 활성화되므로).
+8. 작업표시줄 회귀(`ExcludeFromTaskbar` 제거분): 캐릭터 창과 말풍선이 여전히 작업표시줄에 아이콘을 만들지 않는가.
+
+## 26. 네이티브 창 핸들을 `IntPtr`로만 넘겨 핸들의 종류가 사라짐 — 미해결, **Mac 이식 선행 항목** (2026-09-22)
+
+**어디**: `App.Platform/IWindowBehavior.cs`(`SetClickThrough`/`SetInputShape`의 `IntPtr handle`),
+호출부는 `App.UI/Views/CharacterWindow.axaml.cs`의 `ApplyInputShape`(`TryGetPlatformHandle()?.Handle`).
+
+**무엇**: Avalonia의 `IPlatformHandle`에는 핸들 종류를 나타내는 `HandleDescriptor`가 같이 들어 있다(Windows `"HWND"`,
+macOS `"NSWindow"`/`"NSView"`). 지금은 `.Handle`만 꺼내며 그 정보를 버리고, 구현체도 받은 숫자가 무엇인지 검증하지 않는다.
+
+**왜 지금은 안 급한가**: Windows 단독에서는 드러나지 않는다. `App.Platform.Windows`가 받는 것은 항상 HWND다.
+
+**왜 남겨두나**: Mac 구현을 쓰기 시작하는 순간 조용히 틀릴 수 있다 — 받은 게 `NSWindow`인지 `NSView`인지에 따라 호출할 API가 다르다.
+
+**지금 고치지 않은 이유 (사용자 판단, 2026-09-22)**: **Mac 실기기가 없어 고쳐도 확인할 방법이 없다.** Windows에서만 검증한
+추상화를 미리 늘리기보다, 이식에 착수해 `TryGetPlatformHandle()`이 실제로 무엇을 주는지 본 뒤에 정한다.
+
+**고칠 때의 방향**: `docs/PORTING.md`의 "핸들(`IntPtr`)에 대한 주의" 절에 정리해뒀다. 요지는 `App.Platform`에
+`readonly record struct NativeWindowHandle(IntPtr Value, string Kind)`를 두고 각 구현이 `Kind`를 검증하는 것.
+`IPlatformHandle`을 그대로 넘기는 선택지는 없다 — `App.Platform`의 "참조 0개" 성질이 깨진다.
