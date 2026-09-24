@@ -1,17 +1,11 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Net.Http;
 using App.Core.Diagnostics;
 using App.Core.Domain.Entities;
 using App.Core.Domain.Events;
-using App.Core.Domain.Repositories;
-using App.Core.Domain.Services;
-using App.Core.Infrastructure.FileSystem;
 using App.Core.Infrastructure.Ipc;
-using App.Core.Infrastructure.Llm;
-using App.Core.Infrastructure.Sqlite;
 using App.Platform;
+using App.UI.Composition;
 using App.UI.Services;
 using App.UI.ViewModels;
 using Avalonia;
@@ -23,79 +17,45 @@ namespace App.UI.Views;
 
 public partial class MainWindow : Window
 {
-    // HttpClient는 소켓 고갈 방지를 위해 앱 수명 동안 하나만 재사용한다.
-    private static readonly HttpClient HttpClient = new();
-
-    // TODO: 임시 배선. DI 컨테이너가 생기면 정식 조립 방식으로 교체.
-    private readonly IMemoRepository _memoRepository;
+    private readonly AppServices _services;
     private readonly IWindowBehavior _windowBehavior;
     private readonly List<MemoWindow> _memoWindows = new();
-    private readonly CharacterPackService _characterPackService;
-    // 캐릭터 팩 폴더는 생성자와 설정창 열기 두 곳에서 쓴다 — 같은 경로를 두 번 조립하지 않도록 한 번만 계산한다.
-    private readonly string _packsRootDir;
     private readonly CharacterIpcServer _characterIpcServer;
-    private readonly ISecretStore _secretStore;
-    private readonly AppSettingsStore _appSettingsStore;
     private readonly CharacterOverlayController _characterOverlay;
     private PixelPoint? _lastMemoPosition;
-    private readonly WindowStateStore _windowStateStore;
     private readonly WindowPlacementTracker _placementTracker;
 
     private const int MemoCascadeOffset = 24;
     private const int MemoCascadeBasePos = 100;
     private const int DefaultMemoSize = 220;
 
-    // ISecretStore/IWindowBehavior는 실행 진입점(App.Windows)이 조립해서 넘겨준다 — App.UI는 구체 구현(DPAPI, Win32 등)을 모른다.
-    public MainWindow(ISecretStore secretStore, IWindowBehavior windowBehavior)
+    // 창이 아닌 것들은 App이 AppServices로 만들어 넘겨준다(KNOWN_ISSUES #27). 여기서는 창과 UI에 기대는 것만 만든다.
+    // IWindowBehavior는 실행 진입점(App.Windows)이 만든다 — App.UI는 구체 구현(Win32 등)을 모른다.
+    public MainWindow(AppServices services, IWindowBehavior windowBehavior)
     {
         InitializeComponent();
 
-        _secretStore = secretStore;
+        _services = services;
         _windowBehavior = windowBehavior;
 
-        var dataDir = AppPaths.DataDir;
-        Directory.CreateDirectory(dataDir);
-
         // 마지막에 놓았던 위치/크기 복원. 처음 실행이거나 화면 밖으로 잘렸다면 우상단(본가 우카가카처럼 오른쪽)에서 시작한다.
-        _windowStateStore = new WindowStateStore(Path.Combine(dataDir, "window-state.json"));
-        _placementTracker = new WindowPlacementTracker(this, new WindowStateSlot(_windowStateStore, "main"), trackSize: true);
+        _placementTracker = new WindowPlacementTracker(this, new WindowStateSlot(services.WindowStateStore, "main"), trackSize: true);
         _placementTracker.Restore(ScreenPlacement.TopRight);
 
-        var connectionString = $"Data Source={Path.Combine(dataDir, "stickyghost.db")}";
-        SqliteSchemaInitializer.EnsureCreated(connectionString);
-
-        _memoRepository = new SqliteMemoRepository(connectionString);
-
-        var todoRepository = new SqliteTodoRepository(connectionString);
-        var categoryRepository = new SqliteCategoryRepository(connectionString);
-        // 캐릭터 오버레이는 아래에서 만들어지므로, 버스를 먼저 만들어 TodoService에 주입하고 구독은 그 뒤에 건다.
-        var todoEventBus = new TodoEventBus();
-        var todoService = new TodoService(
-            todoRepository,
-            new SqliteCompletionLogStore(connectionString),
-            todoEventBus,
-            new SystemClock(),
-            TimeSpan.FromMinutes(30));
-
-        var mainViewModel = new MainViewModel(todoRepository, categoryRepository, todoService)
+        var mainViewModel = new MainViewModel(services.TodoRepository, services.CategoryRepository, services.TodoService)
         {
             ConfirmDeleteTodoRequested = () => ConfirmDialog.ShowAsync(this, "이 할 일을 삭제하시겠습니까?"),
         };
         DataContext = mainViewModel;
 
-        _packsRootDir = Path.Combine(AppContext.BaseDirectory, "CharacterPacks");
-        var builtInPackPath = Path.Combine(_packsRootDir, "default");
-        _characterPackService = new CharacterPackService(new JsonCharacterPackLoader(), builtInPackPath);
-
-        _appSettingsStore = new AppSettingsStore(Path.Combine(dataDir, "settings.json"));
         _characterOverlay = new CharacterOverlayController(
-            _characterPackService, _packsRootDir, builtInPackPath, _windowStateStore, _windowBehavior,
-            BuildReactionService(_appSettingsStore.Load()));
+            services.CharacterPackService, services.PacksRootDir, services.BuiltInPackPath, services.WindowStateStore, _windowBehavior,
+            services.BuildReactionService(services.AppSettingsStore.Load()));
 
         // 할 일을 완료하면 캐릭터가 반응한다. 마감 임박/초과(TodoDueSoon/TodoOverdue)는 아직 연결하지 않았다 —
         // CheckDueSoon을 부를 스케줄러가 없고, 중복 발행 방지가 없어 연결하면 매 검사마다 LLM을 부른다(KNOWN_ISSUES #15).
         // Publish는 지금 UI 스레드에서 오지만, 백그라운드에서 올 CheckDueSoon을 대비해 디스패처를 거친다.
-        todoEventBus.Subscribe(todoEvent =>
+        services.TodoEventBus.Subscribe(todoEvent =>
         {
             if (todoEvent is not TodoCompleted completed)
                 return;
@@ -104,11 +64,11 @@ public partial class MainWindow : Window
         });
 
         // App.Mcp(Claude가 스폰하는 별도 프로세스)가 명명 파이프로 say/setExpression을 보내면 여기서 받는다.
-        var ipcHandler = new CharacterIpcRequestHandler(_characterPackService, _characterOverlay, ActivateSelf);
+        var ipcHandler = new CharacterIpcRequestHandler(services.CharacterPackService, _characterOverlay, ActivateSelf);
         _characterIpcServer = new CharacterIpcServer(ipcHandler);
         _characterIpcServer.Start();
 
-        foreach (var memo in _memoRepository.GetAll())
+        foreach (var memo in services.MemoRepository.GetAll())
             OpenMemoWindow(memo);
 
         // 캐릭터 창은 메인 창이 뜬 뒤에 띄운다 — 뜨는 순서가 바뀌면 캐릭터가 메인 창에 가려지거나 포커스를 가져간다.
@@ -131,7 +91,7 @@ public partial class MainWindow : Window
     {
         try
         {
-            var result = _characterOverlay.Apply(_appSettingsStore.Load());
+            var result = _characterOverlay.Apply(_services.AppSettingsStore.Load());
             if (result.UsedFallback)
             {
                 // 선택한 팩을 그리지 못해 기본 캐릭터로 대체했다 — 이유를 모르면 팩이 왜 안 바뀌는지 알 수 없다.
@@ -153,10 +113,10 @@ public partial class MainWindow : Window
         // async void라 여기서 새는 예외는 프로세스 종료로 이어지므로 전체를 감싼다.
         try
         {
-            await new SettingsWindow(_secretStore, _appSettingsStore, _packsRootDir).ShowDialog(this);
+            await new SettingsWindow(_services.SecretStore, _services.AppSettingsStore, _services.PacksRootDir).ShowDialog(this);
 
             // provider/모델/키가 바뀌었을 수 있으니 재시작 없이 바로 반영되도록 다시 조립한다.
-            _characterOverlay.SetReactionService(BuildReactionService(_appSettingsStore.Load()));
+            _characterOverlay.SetReactionService(_services.BuildReactionService(_services.AppSettingsStore.Load()));
             // 캐릭터 표시 여부/배율/팩 선택도 재시작 없이 바로 반영한다.
             ApplyCharacterSettings();
         }
@@ -165,16 +125,6 @@ public partial class MainWindow : Window
             AppLog.Write("settings", ex);
             _ = ConfirmDialog.ShowAsync(this, $"설정을 적용하는 중 오류가 발생했습니다.\n{ex.Message}");
         }
-    }
-
-    private CharacterReactionService BuildReactionService(AppSettings settings)
-    {
-        ICharacterLlmAdapter llmAdapter = settings.LlmProvider == LlmProviderCatalog.Gemini
-            ? new GeminiChatCompletionAdapter(HttpClient, settings.GeminiModel)
-            : new OpenAiChatCompletionAdapter(HttpClient, settings.OpenAiModel);
-
-        return new CharacterReactionService(
-            llmAdapter, _secretStore, _characterPackService, LlmProviderCatalog.ApiKeySecretName(settings.LlmProvider));
     }
 
     private void OnNewMemoClick(object? sender, RoutedEventArgs e)
@@ -188,7 +138,7 @@ public partial class MainWindow : Window
             Width = DefaultMemoSize,
             Height = DefaultMemoSize,
         };
-        _memoRepository.Save(memo);
+        _services.MemoRepository.Save(memo);
         _lastMemoPosition = new PixelPoint((int)position.X, (int)position.Y);
         OpenMemoWindow(memo);
     }
@@ -236,7 +186,7 @@ public partial class MainWindow : Window
 
     private void OpenMemoWindow(MemoNote memo)
     {
-        var viewModel = new MemoNoteViewModel(memo, _memoRepository);
+        var viewModel = new MemoNoteViewModel(memo, _services.MemoRepository);
         var window = new MemoWindow(viewModel);
         _memoWindows.Add(window);
         window.Closed += (_, _) => _memoWindows.Remove(window);

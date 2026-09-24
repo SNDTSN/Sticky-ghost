@@ -7,6 +7,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Diagnostics;
 using Avalonia.Markup.Xaml;
+using App.UI.Composition;
 using App.UI.Views;
 
 namespace App.UI;
@@ -48,7 +49,9 @@ public partial class App : Application
                 ?? throw new InvalidOperationException(
                     "App.WindowBehaviorFactory가 설정되지 않음 — 실행 진입점에서 먼저 지정해야 함");
 
-            desktop.MainWindow = new MainWindow(secretStore, windowBehavior);
+            // 창이 아닌 것들은 여기서 한 번 만들어 메인 창에 넘긴다 — 앱의 조립 지점(KNOWN_ISSUES #27).
+            var services = AppServices.Create(secretStore);
+            desktop.MainWindow = new MainWindow(services, windowBehavior);
 #if DEBUG
             desktop.MainWindow.AttachDevTools();
 #endif
