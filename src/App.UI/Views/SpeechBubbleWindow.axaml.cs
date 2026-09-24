@@ -158,9 +158,10 @@ public partial class SpeechBubbleWindow : Window
         _offset = OffsetFrom(Position);
         Place();
         _offset = OffsetFrom(Position);
-        OffsetChanged?.Invoke(_offset);
 
+        // 닫기 타이머를 알림보다 먼저 건다 — 구독자(저장)가 던지면 그 뒤 줄이 건너뛰어져 말풍선이 영영 닫히지 않는다.
         _hideTimer.Start();
+        OffsetChanged?.Invoke(_offset);
     }
 
     // 다른 창이 포커스를 가져가는 등으로 Released 없이 capture만 풀리면 _pressed가 남아 Place와 닫기 타이머가 영원히 막힌다.

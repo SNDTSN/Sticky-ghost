@@ -21,13 +21,17 @@ public partial class SettingsWindow : Window
     private AppSettings _settings = new();
     private List<CharacterPackScanEntry> _availablePacks = new();
     private bool _isLoading;
+    // 이용자가 팩 목록을 직접 바꿨는지. 안 바꿨으면 저장할 때 SelectedCharacterPackId를 건드리지 않는다 —
+    // 목록이 보여주는 기본 캐릭터 id를 저장해 버리면 깨진 팩의 id가 사라지고(#9), 선택한 적 없는 사용자의 표시 팩이 바뀐다.
+    private bool _packSelectionTouched;
 
     public SettingsWindow()
     {
         InitializeComponent();
     }
 
-    public SettingsWindow(ISecretStore secretStore, AppSettingsStore settingsStore, string characterPacksRootDir)
+    public SettingsWindow(
+        ISecretStore secretStore, AppSettingsStore settingsStore, string characterPacksRootDir, string builtInPackPath)
         : this()
     {
         _secretStore = secretStore;
@@ -42,9 +46,15 @@ public partial class SettingsWindow : Window
         CharacterVisibleToggle.IsChecked = _settings.CharacterVisible;
         SetScaleRadio(_settings.CharacterScale);
         CharacterPackComboBox.ItemsSource = _availablePacks;
-        CharacterPackComboBox.SelectedItem =
-            _availablePacks.FirstOrDefault(p => p.Id == _settings.SelectedCharacterPackId)
-            ?? _availablePacks.FirstOrDefault();
+        // 저장된 팩이 없거나 스캔에서 빠졌으면 캐릭터 표시(CharacterOverlayController.Apply)와 같은 규칙으로 내장 팩을 가리킨다.
+        // 내장 팩은 id가 아니라 폴더로 찾는다 — 다른 팩이 같은 id를 쓰면 엉뚱한 쪽이 잡힌다(KNOWN_ISSUES #11).
+        var savedPack = _availablePacks.FirstOrDefault(p => p.Id == _settings.SelectedCharacterPackId);
+        CharacterPackComboBox.SelectedItem = savedPack ?? _availablePacks.FirstOrDefault(p => IsSameFolder(p.FolderPath, builtInPackPath));
+        if (_settings.SelectedCharacterPackId is { } savedId && savedPack is null)
+        {
+            MissingPackText.Text = $"선택했던 캐릭터({savedId})를 찾지 못해 기본 캐릭터로 표시 중입니다.";
+            MissingPackText.IsVisible = true;
+        }
         _isLoading = false;
 
         RefreshForSelectedProvider();
@@ -59,6 +69,17 @@ public partial class SettingsWindow : Window
         ApplyCharacterToggleState();
     }
 
+    private void OnCharacterPackChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_isLoading)
+            return;
+
+        _packSelectionTouched = true;
+    }
+
+    private static bool IsSameFolder(string a, string b) =>
+        string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
+
     private void ApplyCharacterToggleState()
     {
         CharacterScalePanel.IsEnabled = CharacterVisibleToggle.IsChecked ?? true;
@@ -69,6 +90,7 @@ public partial class SettingsWindow : Window
         Scale50RadioButton.IsChecked = scale == 50;
         Scale150RadioButton.IsChecked = scale == 150;
         Scale200RadioButton.IsChecked = scale == 200;
+        // Load가 허용 값(AppSettings.AllowedCharacterScales)으로 바로잡아 주지만, 방어적으로 그 밖의 값은 100으로 본다.
         Scale100RadioButton.IsChecked = scale != 50 && scale != 150 && scale != 200;
     }
 
@@ -132,7 +154,9 @@ public partial class SettingsWindow : Window
             TodoSortOrder = ImportantFirstRadioButton.IsChecked == true ? TodoSortOrder.ImportantFirst : TodoSortOrder.UrgentFirst,
             CharacterVisible = CharacterVisibleToggle.IsChecked ?? true,
             CharacterScale = GetSelectedScale(),
-            SelectedCharacterPackId = (CharacterPackComboBox.SelectedItem as CharacterPackScanEntry)?.Id,
+            SelectedCharacterPackId = _packSelectionTouched
+                ? (CharacterPackComboBox.SelectedItem as CharacterPackScanEntry)?.Id
+                : _settings.SelectedCharacterPackId,
         };
 
         // 저장은 사용자가 버튼을 눌러 요청한 것이라 실패를 조용히 묻으면 안 된다(KNOWN_ISSUES #21).

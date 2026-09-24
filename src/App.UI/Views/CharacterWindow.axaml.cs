@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using App.Core.Diagnostics;
@@ -257,8 +258,18 @@ public partial class CharacterWindow : Window
 
         var f = _scalePercent / 100.0 * DesktopScaling;
         _balloonOffsetSource = new PixelPoint((int)Math.Round(offsetPx.X / f), (int)Math.Round(offsetPx.Y / f));
-        _stateStore?.Save(
-            BalloonOffsetKey(_pack.Id), new WindowPlacement(_balloonOffsetSource.X, _balloonOffsetSource.Y));
+
+        // WindowStateStore.Save는 실패하면 던진다. 창 위치 저장(WindowPlacementTracker)과 같은 이유로 기록만 남긴다 —
+        // 잃는 것은 조정값 하나이고, 메모리의 값은 이번 실행 동안 그대로 쓰인다(KNOWN_ISSUES #21).
+        try
+        {
+            _stateStore?.Save(
+                BalloonOffsetKey(_pack.Id), new WindowPlacement(_balloonOffsetSource.X, _balloonOffsetSource.Y));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            AppLog.Write("window-state", ex);
+        }
     }
 
     /// <summary>표시 배율만 바꾼다.</summary>

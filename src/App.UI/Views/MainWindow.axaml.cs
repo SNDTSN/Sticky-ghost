@@ -117,7 +117,8 @@ public partial class MainWindow : Window
         // async void라 여기서 새는 예외는 프로세스 종료로 이어지므로 전체를 감싼다.
         try
         {
-            await new SettingsWindow(_services.SecretStore, _services.AppSettingsStore, _services.PacksRootDir).ShowDialog(this);
+            await new SettingsWindow(
+                _services.SecretStore, _services.AppSettingsStore, _services.PacksRootDir, _services.BuiltInPackPath).ShowDialog(this);
 
             var settings = _services.AppSettingsStore.Load();
 
@@ -201,12 +202,27 @@ public partial class MainWindow : Window
         window.Show();
     }
 
+    // 종료 정리는 단계마다 따로 감싼다 — 예전에는 메모 하나의 저장이 던지면 뒤의 메모, 캐릭터 위치 저장, IPC 서버 정지가
+    // 전부 건너뛰어졌다(KNOWN_ISSUES #28 A-5). 종료 중이라 알릴 곳이 없고 종료를 막으면 앱을 끌 수 없게 되므로 기록만 남긴다.
+    // 메모의 DB 실패는 MemoNoteViewModel이 이미 잡으므로 여기는 그 밖의 예상 못 한 예외를 위한 안전망이다.
     private void OnClosing(object? sender, WindowClosingEventArgs e)
     {
         foreach (var window in _memoWindows)
-            window.FlushPendingSave();
+            RunShutdownStep("memo-flush", window.FlushPendingSave);
 
-        _characterOverlay.FlushPlacement();
-        _characterIpcServer.Stop();
+        RunShutdownStep("character-flush", _characterOverlay.FlushPlacement);
+        RunShutdownStep("ipc-stop", _characterIpcServer.Stop);
+    }
+
+    private static void RunShutdownStep(string step, Action action)
+    {
+        try
+        {
+            action();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Write("shutdown", $"{step} 실패 — {ex}");
+        }
     }
 }

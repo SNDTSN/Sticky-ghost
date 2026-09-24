@@ -1038,3 +1038,34 @@ macOS `"NSWindow"`/`"NSView"`). 지금은 `.Handle`만 꺼내며 그 정보를 �
 - **창을 만들다 실패하는 경로도 챙긴다.** `CharacterWindow` 생성자는 실패하면 미리 만든 말풍선 창을 직접 닫는다 — 호출부는 참조를 못 받아 `Closed`도 오지 않기 때문이다. 같은 모양의 코드를 옮길 때 이 정리를 빠뜨리지 않는다.
 - **확인 방법**: 분리 단계마다 실행 확인에 "앱을 종료한 뒤 작업 관리자에 `App.Windows` 프로세스와 캐릭터/말풍선 창이 남지 않는가"를 넣는다.
   옛 빌드로 확인하는 사고를 막으려면 실행 폴더의 DLL 시각도 함께 확인한다.
+
+## 28. 중간점검에서 나온 코드 간 모순 (2026-09-24) — A 전부(A-1~A-5) 해결·**실행 확인 완료**, B·C는 논의 예정
+
+**해결됨**:
+- **설정창의 기본 팩이 캐릭터 표시와 달랐음** — 설정창은 목록의 첫 팩, 캐릭터 표시(`CharacterOverlayController.Apply`)는 내장 팩을 기본으로 썼다.
+  이제 설정창도 내장 팩(폴더로 찾음)을 가리키고, 목록을 직접 바꾸지 않으면 저장 때 `SelectedCharacterPackId`를 건드리지 않는다(#9의 "깨진 팩 id 보존" 유지).
+  저장된 팩을 못 찾으면 목록 아래에 안내 문구를 띄우고, 대신 기존 "목록에 보이지 않는 캐릭터는~" 문구를 줄였다.
+- **말풍선 위치 저장이 #21 규칙을 어김** — `CharacterWindow.OnBalloonOffsetChanged`가 `WindowStateStore.Save`의 예외를 잡지 않아, 저장이 실패하면
+  말풍선이 저절로 닫히지 않았다. 예외를 잡아 로그만 남기고, `SpeechBubbleWindow`는 닫기 타이머를 저장 알림보다 먼저 건다.
+- **settings.json 값 하나로 앱이 기동 실패** — 모르는 `LlmProvider`가 `LlmProviderCatalog.ApiKeySecretName`에서 예외를 던졌다.
+  `AppSettingsStore.Load`가 필드별로 값을 정리한다: provider(대소문자 무시로 정식 이름에 맞춤), 배율, 모델명, 정렬 순서, 빈 팩 id(null로).
+  고친 값은 파일에 다시 쓰지 않는다.
+
+**A-2·A-5 구현 (2026-09-24, 실행 확인 완료 — 읽기 전용 DB로 표시·종료·손실 경고 확인)**:
+- A-2: 종료할 때마다 모든 메모의 `UpdatedAt`이 갱신되던 문제. `MemoNoteViewModel`이 "저장 안 된 변경"(`_dirty`)을 들고 있고,
+  종료 flush는 그게 있을 때만 저장한다. `UpdatedAt`은 내용이 실제로 바뀐 저장에서만 갱신된다. 이미 덮어써진 옛 값은 되살릴 수 없어 그대로 둔다.
+- A-5 (가): `MainWindow.OnClosing`의 정리 단계를 각각 감싸서, 한 단계가 실패해도 나머지(다른 메모, 캐릭터 위치, IPC `Stop`)는 실행된다. 실패는 `[shutdown]` 로그로만 남긴다.
+- A-5 (나): 메모 저장(내용·색상·📌)이 DB 오류로 실패하면 `[memo]` 로그를 남기고 메모 헤더에 "⚠ 저장 안 됨"을 띄운다(사용자 결정: 모르고 앱을 꺼서 메모를 잃지 않게).
+  변경은 남겨 두었다가 다음 입력·색·📌 변경·종료 때 행 전체로 다시 저장하고, 성공하면 표시가 사라진다.
+- 검증: 가짜 저장소로 뷰모델만 따로 돌려 9개 항목 통과. 실제 SQLite는 DB를 읽기 전용으로 만들면 저장이 곧바로 실패한다(2ms, `SqliteException`).
+  다만 연결 풀이 읽기 전용 핸들을 계속 쓰기 때문에, 앱을 켠 채 읽기 전용을 풀어도 재시작 전까지는 복구되지 않는다 — 실행 확인에서 "표시가 사라짐"은 이 방법으로는 볼 수 없다.
+- 범위 밖: 메모 **삭제**가 실패하는 경우(`RequestCloseAsync`의 `Delete`)는 아직 아무도 잡지 않는다. "저장 안 됨"과 뜻이 달라 따로 정한다.
+
+**남은 것 (미해결)**:
+- B-6: 두 LLM 어댑터에 시스템 프롬프트(인젝션 방어 문구)와 응답 파싱이 한 벌씩 복사되어 있음.
+- B-7: IPC 요청 종류 `"say"`/`"setExpression"`이 상수 없이 문자열로 두 프로젝트에 있음.
+- B-8: 캐릭터 팩 스캐너를 두 곳에서 따로 만들고, 설정창을 닫을 때마다 팩 전체를 두 번 훑음.
+- B-9: 체크리스트 한 칸을 체크해도 할 일 전체를 다시 저장함 — #15 스케줄러를 붙이면 서로 덮어쓸 위험(연결 전에 볼 것).
+- B-10: 설정 저장 후 API 키 저장이 실패하면 "저장하지 못했습니다"로 안내됨(설정은 이미 저장됨). `CryptographicException`은 잡지 않음.
+- C: 안 쓰는 코드(`NoOpTodoEventBus`, `CharacterPackLoadOutcome.OriginalErrors`, `SqliteTodoRepository.LoadChecklistItems`, `ViewLocator`),
+  실제와 다른 주석/문서(`CharacterWindow.SetPack`의 "파일 존재만 확인", `docs/todo-design.md`의 `NoOpTodoEventBus`, `ICharacterLlmAdapter.cs`의 겹친 `<summary>`).

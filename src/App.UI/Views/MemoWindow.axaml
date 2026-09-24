@@ -20,11 +20,19 @@
     <Panel>
         <Grid RowDefinitions="Auto,*" Background="{Binding ColorHex, Converter={StaticResource HexColorToBrushConverter}}">
             <Border Grid.Row="0" Background="Transparent" PointerPressed="OnHeaderPointerPressed">
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="4" Spacing="4">
-                    <ToggleButton Content="📌" IsChecked="{Binding IsPinned}" ToolTip.Tip="항상 위 표시" />
-                    <ColorPicker Color="{Binding ColorValue}" ToolTip.Tip="색상 변경" />
-                    <Button Content="✕" Command="{Binding RequestCloseCommand}" ToolTip.Tip="닫기" />
-                </StackPanel>
+                <Panel>
+                    <!-- 저장이 실패해 파일에 반영되지 않은 변경이 있을 때만 보인다(KNOWN_ISSUES #28 A-5). 다음 저장이 성공하면 사라진다.
+                         헤더 드래그 영역 안에 있으므로 이 글자를 잡고도 메모를 옮길 수 있다. -->
+                    <TextBlock Text="⚠ 저장 안 됨" Foreground="#C0392B" FontSize="11"
+                               VerticalAlignment="Center" HorizontalAlignment="Left" Margin="8,0,0,0"
+                               IsVisible="{Binding HasSaveError}"
+                               ToolTip.Tip="메모를 파일에 저장하지 못했습니다. 다시 입력하면 저장을 재시도합니다. 사유는 app.log에 있습니다." />
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="4" Spacing="4">
+                        <ToggleButton Content="📌" IsChecked="{Binding IsPinned}" ToolTip.Tip="항상 위 표시" />
+                        <ColorPicker Color="{Binding ColorValue}" ToolTip.Tip="색상 변경" />
+                        <Button Content="✕" Command="{Binding RequestCloseCommand}" ToolTip.Tip="닫기" />
+                    </StackPanel>
+                </Panel>
             </Border>
             <TextBox Grid.Row="1"
                      Text="{Binding Content}"

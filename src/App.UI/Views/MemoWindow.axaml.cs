@@ -48,10 +48,10 @@ public partial class MemoWindow : Window
     }
 
     /// <summary>메인 창 종료 등으로 강제 종료되기 전에, 디바운스 중이던 위치/크기/내용 저장을 즉시 실행한다.
-    /// 최소화 상태로 종료하면 위치/크기 저장만 건너뛰고(트래커의 가드) 내용은 그대로 저장된다.</summary>
+    /// 최소화 상태로 종료하면 위치/크기 저장만 건너뛰고(트래커의 가드) 밀린 내용/색상/📌 저장은 그대로 한다.</summary>
     public void FlushPendingSave()
     {
         _placementTracker?.Flush();
-        _viewModel?.FlushContentSave();
+        _viewModel?.FlushPendingSave();
     }
 }
