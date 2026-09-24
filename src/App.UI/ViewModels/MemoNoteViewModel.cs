@@ -2,6 +2,7 @@ using System;
 using System.Threading.Tasks;
 using App.Core.Domain.Entities;
 using App.Core.Domain.Repositories;
+using App.Core.Infrastructure.FileSystem;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -53,18 +54,20 @@ public partial class MemoNoteViewModel : ViewModelBase, IDisposable
         set => ColorHex = value.ToString();
     }
 
-    public void UpdatePosition(double x, double y)
+    /// <summary>
+    /// 창 위치/크기 저장(MemoPlacementStore 경유). 메모리의 MemoNote도 같이 갱신한다 — 내용/색상 저장이 행 전체를 덮어쓰므로
+    /// 여기서 DB만 바꾸면 다음 내용 저장이 옛 위치로 되돌린다. DB 쪽은 UPDATE만 하므로 삭제된 메모가 되살아나지 않는다.
+    /// </summary>
+    public void UpdateGeometry(WindowPlacement placement)
     {
-        _memo.PositionX = x;
-        _memo.PositionY = y;
-        _repository.Save(_memo);
-    }
-
-    public void UpdateSize(double width, double height)
-    {
-        _memo.Width = width;
-        _memo.Height = height;
-        _repository.Save(_memo);
+        _memo.PositionX = placement.X;
+        _memo.PositionY = placement.Y;
+        if (placement is { Width: { } width, Height: { } height })
+        {
+            _memo.Width = width;
+            _memo.Height = height;
+        }
+        _repository.UpdateGeometry(_memo.Id, _memo.PositionX, _memo.PositionY, _memo.Width, _memo.Height);
     }
 
     partial void OnContentChanged(string value)

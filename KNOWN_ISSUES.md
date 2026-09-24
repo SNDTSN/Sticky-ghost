@@ -493,7 +493,7 @@ OpenAI 어댑터는 401만 인증 실패로 보므로 403(권한/지역 차단)�
 **조치 (2026-09-22)**: `SaveGeometryNow`에 `WindowState != WindowState.Normal`이면 건너뛰는 가드를 넣었다(`WindowPlacementTracker.SaveNow`와 같은 규칙).
 내용 저장(`FlushContentSave`)은 `FlushPendingSave`에서 따로 불리므로, 최소화 상태로 종료해도 **내용은 저장되고 위치/크기만 건너뛴다**.
 
-### 20-1. 창 위치 저장 경로가 두 벌인 문제 — 미해결 (2026-09-22 분리)
+### 20-1. ~~창 위치 저장 경로가 두 벌인 문제~~ — 해결됨 (2026-09-24, **실행 확인 완료**)
 
 위 가드는 `a38da9b`에서 `WindowPlacementTracker`를 만들며 알아낸 규칙을 메모 경로에 뒤늦게 역수출한 것이고, **중복 자체는 그대로 남아 있다.**
 
@@ -510,6 +510,27 @@ OpenAI 어댑터는 401만 인증 실패로 보므로 403(권한/지역 차단)�
    `IMemoRepository.UpdateGeometry(Guid, WindowPlacement)`(UPDATE만, 행 없으면 no-op)를 추가해 막는다. 덤으로 위치 저장이 `Content`/`UpdatedAt`을 건드리지 않게 된다.
 2. 트래커의 `Restore`는 저장값이 화면 밖이면 기본 위치로 보내지만 메모는 가장 가까운 화면 안으로 clamp해야 한다 → `Restore`에 복원 정책 인자가 필요.
 3. 트래커의 `LimitSizeToWorkArea`가 메모에 새로 적용된다(개선이지만 기존 동작 변화).
+
+**조치 (2026-09-24)**: 위 통합안대로 메모 창도 `WindowPlacementTracker`로 저장한다. 메모 창의 자체 타이머/`SaveGeometryNow`는 삭제했다.
+- `IWindowPlacementStore`(`Load`/`Save`) + 어댑터 둘: `WindowStateSlot`(JSON 파일의 키 하나, 메인/캐릭터 창), `MemoPlacementStore`(메모 뷰모델 경유).
+- 함정 1 → `IMemoRepository.UpdateGeometry`(UPDATE만). 삭제 직후 `Closing`에서 저장해도 행이 되살아나지 않고, `Content`/`UpdatedAt`도 건드리지 않는다.
+- 함정 2 → 트래커에 복원 메서드를 둘로 나눴다: `Restore(defaultPosition)`(기존)과 `RestoreClampedToNearest()`(메모). 크기 복원과 작업 영역 제한은 두 메서드가 공유한다.
+- 함정 3 → 그대로 받아들임(사용자 판단): 줄어든 메모는 사용자가 다시 옮기고 크기를 조절할 수 있다.
+
+**작업 중 새로 찾은 함정 2가지**:
+4. 내용/색상/📌 저장은 `MemoNote` 행 전체를 UPSERT한다. 그래서 위치를 DB에만 쓰면 다음 내용 저장이 옛 위치로 되돌린다
+   → `MemoNoteViewModel.UpdateGeometry`가 메모리의 `MemoNote`와 DB를 **같이** 갱신한다.
+5. SQLite는 `DbException`을 던지는데 트래커는 IO 예외만 잡고 있었다(기존 메모 경로는 아예 안 잡아서 타이머 Tick에서 앱이 죽을 수 있었다)
+   → 트래커의 catch에 `DbException`을 추가했다. 어댑터에서 잡으면 실패 정책을 정하는 곳이 다시 두 곳이 되므로, 트래커 한 곳에 둔다(사용자 판단).
+
+`ScreenPlacement.RestoreOrClamp(Screens, ...)` 오버로드는 메모가 더는 쓰지 않지만 `CharacterWindow`(팩 크기 변경)가 쓰고 있어서 남겨뒀다.
+
+**검증 (2026-09-24)**: `UpdateGeometry`를 임시 DB로 6가지 확인(전부 통과) — 위치/크기 갱신, `Content`/`UpdatedAt`/`Color`/`IsPinned` 유지,
+없는 Id는 행을 만들지 않음, 삭제 뒤에 호출해도 되살아나지 않음.
+
+**실행 확인 (2026-09-24, 사용자)**: 6가지 통과 — 이동/리사이즈 후 재시작, 이동 직후 바로 종료, 최소화한 채 종료(#20 회귀 없음),
+이동 직후 내용 입력(함정 4 — 옛 위치로 되돌아가지 않음), 내용 있는 메모와 빈 메모 삭제 후 재시작(함정 1 — 되살아나지 않음), 메인/캐릭터 창 위치 기억(회귀 없음).
+**미확인**: 보조 모니터를 뺀 상태에서 메모가 가장 가까운 화면 안으로 들어오는지(`RestoreClampedToNearest`). 모니터 구성을 바꿀 수 있을 때 확인할 것.
 
 ## 21. ~~설정/창 위치 파일이 IO 오류에 무방비하고 저장이 원자적이지 않음~~ — 해결됨 (2026-09-22, **실행 확인 완료**)
 

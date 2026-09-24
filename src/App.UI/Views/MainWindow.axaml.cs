@@ -58,7 +58,7 @@ public partial class MainWindow : Window
 
         // 마지막에 놓았던 위치/크기 복원. 처음 실행이거나 화면 밖으로 잘렸다면 우상단(본가 우카가카처럼 오른쪽)에서 시작한다.
         _windowStateStore = new WindowStateStore(Path.Combine(dataDir, "window-state.json"));
-        _placementTracker = new WindowPlacementTracker(this, _windowStateStore, "main", trackSize: true);
+        _placementTracker = new WindowPlacementTracker(this, new WindowStateSlot(_windowStateStore, "main"), trackSize: true);
         _placementTracker.Restore(ScreenPlacement.TopRight);
 
         var connectionString = $"Data Source={Path.Combine(dataDir, "stickyghost.db")}";

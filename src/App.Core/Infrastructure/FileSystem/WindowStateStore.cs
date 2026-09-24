@@ -9,7 +9,8 @@ public sealed record WindowPlacement(int X, int Y, double? Width = null, double?
 /// <summary>
 /// 창 위치/크기 저장소. AppSettings와 파일을 분리한 이유: SettingsWindow가 자기가 들고 있던 AppSettings 전체를
 /// 덮어써서 저장하므로, 위치를 같은 파일에 두면 설정창이 열려 있는 동안 창을 옮겨도 옛 위치로 되돌아간다.
-/// 메모 창은 위치를 SQLite(MemoNote)에 저장하므로 여기서 다루지 않는다(KNOWN_ISSUES #20-1).
+/// 메모 창은 위치를 SQLite(MemoNote)에 저장하므로 여기서 다루지 않는다 — 저장 로직은 WindowPlacementTracker 하나를 공유하고
+/// 저장처만 어댑터(WindowStateSlot / MemoPlacementStore)로 나뉜다(KNOWN_ISSUES #20-1).
 /// </summary>
 public sealed class WindowStateStore
 {
@@ -28,7 +29,7 @@ public sealed class WindowStateStore
 
     /// <summary>
     /// 창 하나의 위치를 저장한다. **실패하면 예외를 던진다** — 이벤트 핸들러(이동 디바운스, Closing)에서 부르는
-    /// WindowPlacementTracker가 잡아서 로그만 남긴다. 다른 자리에서 부를 거면 그쪽도 반드시 잡아야 한다.
+    /// WindowPlacementTracker가 (WindowStateSlot을 거쳐) 잡아서 로그만 남긴다. 다른 자리에서 부를 거면 그쪽도 반드시 잡아야 한다.
     /// </summary>
     public void Save(string key, WindowPlacement placement)
     {

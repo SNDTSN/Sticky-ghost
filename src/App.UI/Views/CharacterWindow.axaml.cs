@@ -144,7 +144,7 @@ public partial class CharacterWindow : Window
         }
 
         // 크기가 정해진 뒤에 위치를 복원한다. 처음 실행이거나 화면 밖으로 잘렸으면 우하단(본가 우카가카식)에서 시작.
-        _placementTracker = new WindowPlacementTracker(this, stateStore, "character", trackSize: false);
+        _placementTracker = new WindowPlacementTracker(this, new WindowStateSlot(stateStore, "character"), trackSize: false);
         _placementTracker.Restore(ScreenPlacement.BottomRight);
     }
 
