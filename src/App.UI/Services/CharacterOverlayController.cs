@@ -24,7 +24,7 @@ public sealed record PackApplyResult(bool UsedFallback, string? FailureReason = 
 public sealed class CharacterOverlayController
 {
     private readonly CharacterPackService _packService;
-    private readonly CharacterPackScanner _scanner = new(new JsonCharacterPackLoader());
+    private readonly CharacterPackScanner _scanner;
     private readonly string _packsRootDir;
     private readonly string _builtInPackPath;
     private readonly WindowStateStore _stateStore;
@@ -37,6 +37,7 @@ public sealed class CharacterOverlayController
 
     public CharacterOverlayController(
         CharacterPackService packService,
+        CharacterPackScanner scanner,
         string packsRootDir,
         string builtInPackPath,
         WindowStateStore stateStore,
@@ -44,6 +45,7 @@ public sealed class CharacterOverlayController
         CharacterReactionService reactionService)
     {
         _packService = packService;
+        _scanner = scanner;
         _packsRootDir = packsRootDir;
         _builtInPackPath = builtInPackPath;
         _stateStore = stateStore;
@@ -74,8 +76,11 @@ public sealed class CharacterOverlayController
             return PackApplyResult.Applied;
         }
 
-        var folder = _scanner.ScanAvailablePacks(_packsRootDir)
-            .FirstOrDefault(p => p.Id == settings.SelectedCharacterPackId)?.FolderPath ?? _builtInPackPath;
+        // 고른 팩이 없으면 스캔할 필요 없이 내장 팩이다(결과는 스캔해도 같다). 스캔이 남기던 "목록에서 제외" 로그는
+        // 설정창을 열 때 어차피 전체를 스캔하면서 남는다(사용자 결정, KNOWN_ISSUES #28 B-8).
+        var folder = settings.SelectedCharacterPackId is { } selectedId
+            ? _scanner.ScanAvailablePacks(_packsRootDir).FirstOrDefault(p => p.Id == selectedId)?.FolderPath ?? _builtInPackPath
+            : _builtInPackPath;
 
         try
         {

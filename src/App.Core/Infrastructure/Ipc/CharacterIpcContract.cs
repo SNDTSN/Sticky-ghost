@@ -35,13 +35,17 @@ public static class CharacterIpcContract
 }
 
 /// <summary>
-/// Type: "say" | "setExpression" | "activate" — 종류가 적어 문자열로 단순화. 늘어나면 enum으로 바꾼다.
+/// Type: <see cref="TypeSay"/> | <see cref="TypeSetExpression"/> | <see cref="TypeActivate"/> — 종류가 적어 문자열로 단순화. 늘어나면 enum으로 바꾼다.
+/// 보내는 쪽(App.Mcp, App.Windows)과 받는 쪽(App.UI)이 다른 프로젝트라 값은 반드시 이 상수로만 쓴다(KNOWN_ISSUES #28 B-7).
+/// 값(파이프로 오가는 문자열)을 바꾸면 실행 중인 옛 App.Mcp 프로세스와 통신이 끊긴다.
 /// "activate"는 캐릭터 조작이 아니라 이중 실행된 두 번째 인스턴스가 기존 인스턴스의 메인 창을 앞으로 가져오게
 /// 요청하는 용도다(파이프 이름은 역사적 이유로 CharacterIpc 그대로). App.Mcp는 이 타입을 툴로 노출하지 않는다 —
 /// 툴 표면 최소화 원칙(character-widget-design.md "프롬프트 인젝션") 유지.
 /// </summary>
 public sealed record CharacterIpcRequest(string Type, string? Text, string? ExpressionId)
 {
+    public const string TypeSay = "say";
+    public const string TypeSetExpression = "setExpression";
     public const string TypeActivate = "activate";
 }
 

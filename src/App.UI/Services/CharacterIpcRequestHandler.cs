@@ -45,8 +45,8 @@ public sealed class CharacterIpcRequestHandler : ICharacterIpcRequestHandler
 
         return request.Type switch
         {
-            "say" => HandleSay(request.Text),
-            "setExpression" => HandleSetExpression(pack.Appearance.Expressions.Select(e => e.Id), request.ExpressionId),
+            CharacterIpcRequest.TypeSay => HandleSay(request.Text),
+            CharacterIpcRequest.TypeSetExpression => HandleSetExpression(pack.Appearance.Expressions.Select(e => e.Id), request.ExpressionId),
             _ => new CharacterIpcResponse(false, $"알 수 없는 type: {request.Type}"),
         };
     }

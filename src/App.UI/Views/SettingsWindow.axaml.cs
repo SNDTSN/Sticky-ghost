@@ -31,13 +31,14 @@ public partial class SettingsWindow : Window
     }
 
     public SettingsWindow(
-        ISecretStore secretStore, AppSettingsStore settingsStore, string characterPacksRootDir, string builtInPackPath)
+        ISecretStore secretStore, AppSettingsStore settingsStore, CharacterPackScanner packScanner,
+        string characterPacksRootDir, string builtInPackPath)
         : this()
     {
         _secretStore = secretStore;
         _settingsStore = settingsStore;
         _settings = _settingsStore.Load();
-        _availablePacks = new CharacterPackScanner(new JsonCharacterPackLoader()).ScanAvailablePacks(characterPacksRootDir);
+        _availablePacks = packScanner.ScanAvailablePacks(characterPacksRootDir);
 
         _isLoading = true;
         ImportantFirstRadioButton.IsChecked = _settings.TodoSortOrder == TodoSortOrder.ImportantFirst;

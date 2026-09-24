@@ -53,7 +53,7 @@ public partial class MainWindow : Window
         DataContext = _mainViewModel;
 
         _characterOverlay = new CharacterOverlayController(
-            services.CharacterPackService, services.PacksRootDir, services.BuiltInPackPath, services.WindowStateStore, _windowBehavior,
+            services.CharacterPackService, services.PackScanner, services.PacksRootDir, services.BuiltInPackPath, services.WindowStateStore, _windowBehavior,
             services.BuildReactionService(settings));
 
         // 할 일을 완료하면 캐릭터가 반응한다. 마감 임박/초과(TodoDueSoon/TodoOverdue)는 아직 연결하지 않았다 —
@@ -118,7 +118,8 @@ public partial class MainWindow : Window
         try
         {
             await new SettingsWindow(
-                _services.SecretStore, _services.AppSettingsStore, _services.PacksRootDir, _services.BuiltInPackPath).ShowDialog(this);
+                _services.SecretStore, _services.AppSettingsStore, _services.PackScanner,
+                _services.PacksRootDir, _services.BuiltInPackPath).ShowDialog(this);
 
             var settings = _services.AppSettingsStore.Load();
 

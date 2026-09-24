@@ -33,6 +33,8 @@ public sealed class AppServices
     public required string PacksRootDir { get; init; }
     public required string BuiltInPackPath { get; init; }
     public required CharacterPackService CharacterPackService { get; init; }
+    // 팩 목록 스캔은 캐릭터 표시(오버레이)와 설정창 두 곳에서 한다 — 각자 만들지 않고 하나를 같이 쓴다(KNOWN_ISSUES #28 B-8).
+    public required CharacterPackScanner PackScanner { get; init; }
 
     // HttpClient는 소켓 고갈 방지를 위해 앱 수명 동안 하나만 재사용한다.
     public required HttpClient HttpClient { get; init; }
@@ -58,6 +60,8 @@ public sealed class AppServices
 
         var packsRootDir = Path.Combine(AppContext.BaseDirectory, "CharacterPacks");
         var builtInPackPath = Path.Combine(packsRootDir, "default");
+        // 로더는 상태가 없어 팩 서비스와 스캐너가 하나를 같이 쓴다.
+        var packLoader = new JsonCharacterPackLoader();
 
         return new AppServices
         {
@@ -71,7 +75,8 @@ public sealed class AppServices
             TodoService = todoService,
             PacksRootDir = packsRootDir,
             BuiltInPackPath = builtInPackPath,
-            CharacterPackService = new CharacterPackService(new JsonCharacterPackLoader(), builtInPackPath),
+            CharacterPackService = new CharacterPackService(packLoader, builtInPackPath),
+            PackScanner = new CharacterPackScanner(packLoader),
             HttpClient = new HttpClient(),
         };
     }

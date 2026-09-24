@@ -15,7 +15,7 @@ public sealed class CharacterTools
         CharacterIpcClient ipcClient,
         [Description("캐릭터가 말할 대사 한 줄")] string text)
     {
-        var response = await ipcClient.SendAsync(new CharacterIpcRequest("say", text, null), CancellationToken.None);
+        var response = await ipcClient.SendAsync(new CharacterIpcRequest(CharacterIpcRequest.TypeSay, text, null), CancellationToken.None);
         return response.IsSuccess ? "OK" : $"실패: {response.ErrorMessage}";
     }
 
@@ -24,7 +24,7 @@ public sealed class CharacterTools
         CharacterIpcClient ipcClient,
         [Description("표정 id — 현재 로드된 캐릭터팩의 expressions 중 하나")] string expressionId)
     {
-        var response = await ipcClient.SendAsync(new CharacterIpcRequest("setExpression", null, expressionId), CancellationToken.None);
+        var response = await ipcClient.SendAsync(new CharacterIpcRequest(CharacterIpcRequest.TypeSetExpression, null, expressionId), CancellationToken.None);
         return response.IsSuccess ? "OK" : $"실패: {response.ErrorMessage}";
     }
 }
