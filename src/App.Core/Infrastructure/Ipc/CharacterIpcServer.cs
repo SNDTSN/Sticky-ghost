@@ -50,7 +50,8 @@ public sealed class CharacterIpcServer
                     PipeDirection.InOut,
                     maxNumberOfServerInstances: 1,
                     PipeTransmissionMode.Byte,
-                    PipeOptions.Asynchronous);
+                    // CurrentUserOnly: 파이프 접근을 현재 사용자로 제한한다. 이름의 세션 id는 예측 가능해서 이름만으로는 다른 사용자를 막지 못한다(KNOWN_ISSUES #22).
+                    PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
 
                 await pipeServer.WaitForConnectionAsync(cancellationToken);
                 await HandleOneConnectionAsync(pipeServer, cancellationToken);

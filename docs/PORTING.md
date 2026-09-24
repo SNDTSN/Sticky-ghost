@@ -132,6 +132,22 @@ OS 종속 API를 호출하는 게 아니라 경로 문자열만 고르는 일이
 **여기 넣지 않는 것**: 캐릭터 팩 폴더(`AppContext.BaseDirectory/CharacterPacks`)는 데이터가 아니라 앱과 함께 배포되는 자산이라
 `MainWindow._packsRootDir`가 따로 만든다. 사용자가 팩을 추가하는 폴더를 데이터 폴더 쪽으로 옮기게 되면 그때 이 표에 합친다.
 
+## IPC 파이프 이름 (2026-09-24, KNOWN_ISSUES #22)
+
+`App.UI`(서버)와 `App.Mcp`·두 번째 인스턴스(클라이언트)가 쓰는 명명 파이프 이름. **`CharacterIpcContract.PipeName` 한 곳에서만 만든다.**
+경로 문자열처럼 이름만 고르는 일이라 `AppPaths`와 같은 판단으로 `App.Core` 안에서 `OperatingSystem.IsWindows()`로 가른다.
+
+| OS | 이름 | 이유 |
+|---|---|---|
+| Windows | `StickyGhost.CharacterIpc.<로그인 세션 id>` | 명명 파이프 이름공간이 머신 전역이라, 단일 인스턴스 뮤텍스(`Local\`)와 같은 범위로 맞춘다 |
+| 그 밖(Mac) | `StickyGhost.CharacterIpc` | .NET이 파이프를 `Path.GetTempPath()` 아래 유닉스 소켓으로 만들고, macOS의 TMPDIR은 사용자별이라 이미 분리된다 |
+
+양쪽 모두 `PipeOptions.CurrentUserOnly`를 켠다. 서버는 파이프를 현재 사용자로 제한하고, 클라이언트는 파이프 주인이 현재 사용자인지 확인한다.
+
+**Mac 이식 시 볼 것 (미확인 — 실기기 없음)**:
+- `Process.SessionId`를 Mac에서 쓰면 안 된다. Unix에서는 POSIX 세션(`getsid`)이라 Finder로 띄운 앱과 Claude Code가 띄운 `App.Mcp`의 값이 달라질 수 있다.
+- TMPDIR이 사용자별이라는 전제와 `CurrentUserOnly`가 Unix 소켓에서 기대대로 동작하는지는 실기기에서 `say` 한 번으로 확인한다.
+
 ## 다음에 채울 것
 
 캐릭터 엔진/메모 위젯 설계가 진행되면서 트레이 아이콘, 전역 단축키, 알림(토스트) 등 추가 플랫폼 인터페이스가 필요해질 수 있음. 필요해지는 시점에 이 문서에 표를 추가한다 — 미리 만들어두지 않는다.

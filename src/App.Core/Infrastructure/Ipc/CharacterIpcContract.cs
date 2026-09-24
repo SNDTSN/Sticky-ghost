@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace App.Core.Infrastructure.Ipc;
 
 /// <summary>
@@ -6,7 +8,27 @@ namespace App.Core.Infrastructure.Ipc;
 /// </summary>
 public static class CharacterIpcContract
 {
-    public const string PipeName = "StickyGhost.CharacterIpc";
+    private const string PipeBaseName = "StickyGhost.CharacterIpc";
+
+    /// <summary>
+    /// 서버(App.UI)와 클라이언트(App.Mcp, 이중 실행된 두 번째 인스턴스)가 반드시 같은 규칙을 써야 하므로 이름은 여기서만 만든다.
+    /// </summary>
+    public static string PipeName { get; } = BuildPipeName();
+
+    private static string BuildPipeName()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            // 명명 파이프 이름공간은 머신 전역이다. 단일 인스턴스 뮤텍스(Local\)와 같은 범위로 맞추려고 로그인 세션 id를 붙인다
+            // (KNOWN_ISSUES #22 — 안 붙이면 두 사용자가 동시에 로그인했을 때 파이프를 두고 다툰다).
+            using var process = Process.GetCurrentProcess();
+            return $"{PipeBaseName}.{process.SessionId}";
+        }
+
+        // Unix 계열: .NET이 파이프를 사용자별 TMPDIR 아래 소켓 파일로 만들어 이미 사용자 단위로 분리된다.
+        // Process.SessionId는 여기서 POSIX 세션(getsid)이라 앱과 App.Mcp의 값이 다를 수 있으므로 쓰지 않는다(Mac 미확인, docs/PORTING.md).
+        return PipeBaseName;
+    }
 }
 
 /// <summary>

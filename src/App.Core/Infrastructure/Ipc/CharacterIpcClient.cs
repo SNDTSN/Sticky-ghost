@@ -13,8 +13,9 @@ public sealed class CharacterIpcClient
 
     public async Task<CharacterIpcResponse> SendAsync(CharacterIpcRequest request, CancellationToken cancellationToken)
     {
+        // CurrentUserOnly: 연결한 파이프의 주인이 현재 사용자인지 확인한다 — 다른 사용자가 같은 이름을 먼저 잡아둔 파이프에 요청을 보내지 않게(KNOWN_ISSUES #22).
         using var pipeClient = new NamedPipeClientStream(
-            ".", CharacterIpcContract.PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+            ".", CharacterIpcContract.PipeName, PipeDirection.InOut, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
 
         try
         {
@@ -23,6 +24,11 @@ public sealed class CharacterIpcClient
         catch (TimeoutException)
         {
             return new CharacterIpcResponse(false, "캐릭터 위젯이 실행 중이지 않습니다.");
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // 파이프 주인이 현재 사용자가 아님 — 다른 사용자의 파이프이거나, 앱만 관리자 권한으로 실행되어 주인이 Administrators 그룹인 경우.
+            return new CharacterIpcResponse(false, "캐릭터 위젯 파이프의 주인이 현재 사용자가 아닙니다(앱을 관리자 권한으로 실행했는지 확인).");
         }
 
         // leaveOpen: true 필수 — 안 그러면 reader/writer 둘 다 같은 pipeClient를 감싸고 있어서, 먼저

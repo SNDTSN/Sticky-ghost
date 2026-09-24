@@ -384,7 +384,8 @@ JSON Schema에 `AvailableExpressionIds + null`을 `enum` 제약으로 걸어 "�
 **계약** (`App.Core/Infrastructure/Ipc/CharacterIpcContract.cs`) — 요청 1개 → 응답 1개 후 연결 종료,
 매 툴 호출마다 새로 연결:
 ```
-PipeName = "StickyGhost.CharacterIpc"
+PipeName = "StickyGhost.CharacterIpc.<로그인 세션 id>"   // Windows. Mac은 접미사 없음(docs/PORTING.md "IPC 파이프 이름")
+// 2026-09-24(KNOWN_ISSUES #22): 세션 id 접미사 + 서버·클라이언트 모두 PipeOptions.CurrentUserOnly.
 record CharacterIpcRequest(string Type, string? Text, string? ExpressionId)   // Type: "say" | "setExpression" | "activate"
 // "activate"(2026-09-20 추가)는 캐릭터 조작이 아니라 이중 실행된 두 번째 인스턴스가 기존 인스턴스의 메인 창을 앞으로
 // 가져오게 하는 앱 제어 요청. App.Mcp는 툴로 노출하지 않는다. docs/stability-hardening.md "C1".
