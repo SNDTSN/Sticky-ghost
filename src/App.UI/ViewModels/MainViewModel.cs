@@ -430,14 +430,7 @@ public partial class MainViewModel : ViewModelBase
     // 예전에는 여기서 UpsertItem을 불러 VM을 새로 만들었는데, 그 바람에 정렬 키가 그대로인데도
     // 항목이 목록 아래로 밀려났다(KNOWN_ISSUES #17). 나중에 진행률 표시를 넣는다면 그때는
     // UpsertItem을 다시 불러야 하고, 제자리 교체 분기가 순서를 지켜준다.
-    private void ToggleChecklistItem(Guid todoId, Guid checklistItemId, bool isChecked)
-    {
-        var item = _todoRepository.Get(todoId);
-        var checklistItem = item?.ChecklistItems.FirstOrDefault(c => c.Id == checklistItemId);
-        if (item is null || checklistItem is null)
-            return;
-
-        checklistItem.IsChecked = isChecked;
-        _todoRepository.Save(item);
-    }
+    // 체크한 행 하나만 UPDATE한다 — 예전의 Get → 전체 Save는 다른 경로의 변경을 덮어쓸 수 있었다(KNOWN_ISSUES #28 B-9).
+    private void ToggleChecklistItem(Guid checklistItemId, bool isChecked) =>
+        _todoRepository.SetChecklistItemChecked(checklistItemId, isChecked);
 }

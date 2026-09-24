@@ -139,8 +139,12 @@ public sealed class TodoService
 
             if (minutesLeft <= _dueSoonThreshold.TotalMinutes && !item.NotifiedDueSoon)
             {
+                // 목록은 루프 전에 한꺼번에 읽었으므로 그 사이 사용자가 완료·삭제했을 수 있다. 전체 Save로 쓰면 옛 값으로
+                // 완료를 되돌리거나 삭제한 항목을 되살린다 — 조건부 UPDATE가 성공했을 때만 알린다(KNOWN_ISSUES #28 B-9).
+                if (!_repository.MarkNotifiedDueSoon(item.Id, dueDate))
+                    continue;
+
                 item.NotifiedDueSoon = true;
-                _repository.Save(item);
                 _eventBus.Publish(new TodoDueSoon(TodoItemSnapshot.From(item), minutesLeft));
             }
             else if (dueDate < now)

@@ -135,6 +135,31 @@ public sealed class SqliteTodoRepository : ITodoRepository
         return item;
     }
 
+    public void SetChecklistItemChecked(Guid checklistItemId, bool isChecked)
+    {
+        using var connection = SqliteConnectionHelper.OpenConnection(_connectionString);
+        using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE ChecklistItem SET IsChecked = $IsChecked WHERE Id = $Id;";
+        command.Parameters.AddWithValue("$Id", checklistItemId.ToString());
+        command.Parameters.AddWithValue("$IsChecked", isChecked);
+        command.ExecuteNonQuery();
+    }
+
+    public bool MarkNotifiedDueSoon(Guid id, DateTime dueDate)
+    {
+        using var connection = SqliteConnectionHelper.OpenConnection(_connectionString);
+        using var command = connection.CreateCommand();
+        // DueDate는 TEXT로 저장된다. 읽어 온 값을 같은 방식(AddWithValue)으로 다시 넘기면 저장 때와 같은 문자열이 되어 그대로 비교된다.
+        // 반복 항목이 그 사이 완료되면 행은 "미완료 + 새 마감일 + 알림 표시 꺼짐"이 되므로 앞의 두 조건으로는 못 거른다 — DueDate가 거른다.
+        command.CommandText = """
+            UPDATE TodoItem SET NotifiedDueSoon = 1
+            WHERE Id = $Id AND IsCompleted = 0 AND NotifiedDueSoon = 0 AND DueDate = $DueDate;
+            """;
+        command.Parameters.AddWithValue("$Id", id.ToString());
+        command.Parameters.AddWithValue("$DueDate", dueDate);
+        return command.ExecuteNonQuery() > 0;
+    }
+
     public IEnumerable<TodoItem> GetActiveWithDueDate()
     {
         using var connection = SqliteConnectionHelper.OpenConnection(_connectionString);

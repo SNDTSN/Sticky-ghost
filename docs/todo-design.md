@@ -216,10 +216,12 @@ CompleteTodo(id):
 DeleteTodo(id):
     repository.Delete(id)   // ChecklistItem/CompletionLog는 FK ON DELETE CASCADE로 같이 삭제됨
 
-// 백그라운드 타이머 (예: 1분마다)
+// 주기 타이머 (예: 1분마다) — UI 스레드 타이머 권장(KNOWN_ISSUES #15 "스케줄러 스레드")
 CheckDueSoon():
     for item in repository.GetActiveWithDueDate():
         if item.DueDate - now <= threshold and not item.NotifiedDueSoon:
+            // 전체 Save가 아니라 조건부 UPDATE — 목록을 읽은 뒤 완료/삭제/다음 회차로 바뀐 항목은 false (KNOWN_ISSUES #28 B-9)
+            if not repository.MarkNotifiedDueSoon(item.Id, item.DueDate): continue
             item.NotifiedDueSoon = true
             eventBus.Publish(TodoDueSoon(item, minutesLeft))
         elif item.DueDate < now:

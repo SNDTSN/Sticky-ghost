@@ -34,7 +34,7 @@ public partial class TodoItemViewModel : ViewModelBase
     private bool _isCompleted;
 
     public TodoItemViewModel(
-        TodoItem item, TodoSortKey sortKey, Category? category, Action<Guid> onComplete, Action<Guid, Guid, bool> onToggleChecklistItem,
+        TodoItem item, TodoSortKey sortKey, Category? category, Action<Guid> onComplete, Action<Guid, bool> onToggleChecklistItem,
         Func<Guid, Task> onDelete)
     {
         _onComplete = onComplete;
@@ -50,12 +50,10 @@ public partial class TodoItemViewModel : ViewModelBase
         CategoryName = category?.Name;
         CategoryColorHex = category?.Color;
 
-        var todoId = item.Id;
         ChecklistItems = new ObservableCollection<ChecklistItemViewModel>(
             item.ChecklistItems
                 .OrderBy(c => c.SortOrder)
-                .Select(c => new ChecklistItemViewModel(
-                    c, (checklistItemId, isChecked) => onToggleChecklistItem(todoId, checklistItemId, isChecked))));
+                .Select(c => new ChecklistItemViewModel(c, onToggleChecklistItem)));
     }
 
     partial void OnIsCompletedChanged(bool value)

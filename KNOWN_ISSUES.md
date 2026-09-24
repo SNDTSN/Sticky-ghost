@@ -243,6 +243,11 @@ base + 눈감김 + 표정 10개면 약 360MB다. 마스크를 뽑는 동안 같�
 
 **해결된 결함**: ~~마감 **시각**이 항상 00:00이다~~ → #19-(3)에서 `DueDateRule.FromDateOnly`가 날짜만 고른 마감을 그날 23:59:59로 맞추면서 해결됐다(2026-09-22).
 
+**스케줄러 스레드 (2026-09-24, 참고 — #28 B-9 논의에서)**: 설계 문서는 "백그라운드 타이머"였지만 **UI 스레드 타이머(`DispatcherTimer`)를 권한다.**
+할 일을 쓰는 경로(추가·완료·체크·삭제)가 전부 UI 스레드라, 검사도 같은 스레드에서 돌면 "읽은 뒤 사용자가 바꾼 것을 옛 값으로 덮어쓰기"가 구조적으로 불가능해진다.
+`CheckDueSoon`은 로컬 SQLite 조회 한 번이라 UI를 붙잡지 않고, LLM 호출은 원래 비동기다. B-9에서 `MarkNotifiedDueSoon`(조건부 UPDATE)으로
+덮어쓰기 사고 셋(체크 되돌림, 완료 취소, 삭제 항목 부활)은 이미 막았으므로 필수는 아니고, 스레드를 고를 때의 근거로 남긴다.
+
 **개선 방향**: `dueDate < now` 분기를 먼저 검사하고, 초과 알림용 `NotifiedOverdue` 플래그를 추가한다(컬럼 추가는 #2의 `EnsureColumnExists` 방식으로 가능).
 또는 이벤트를 받는 쪽에서 (항목 id, 종류) 단위로 디바운스한다. `docs/todo-design.md`의 의사코드도 함께 고친다.
 
@@ -1065,7 +1070,11 @@ macOS `"NSWindow"`/`"NSView"`). 지금은 `.Handle`만 꺼내며 그 정보를 �
 - B-6: 두 LLM 어댑터에 시스템 프롬프트(인젝션 방어 문구)와 응답 파싱이 한 벌씩 복사되어 있음.
 - B-7: IPC 요청 종류 `"say"`/`"setExpression"`이 상수 없이 문자열로 두 프로젝트에 있음.
 - B-8: 캐릭터 팩 스캐너를 두 곳에서 따로 만들고, 설정창을 닫을 때마다 팩 전체를 두 번 훑음.
-- B-9: 체크리스트 한 칸을 체크해도 할 일 전체를 다시 저장함 — #15 스케줄러를 붙이면 서로 덮어쓸 위험(연결 전에 볼 것).
+- ~~B-9: 체크리스트 한 칸을 체크해도 할 일 전체를 다시 저장함~~ — **해결 (2026-09-24, 실행 확인 완료 5/5 · 임시 DB 검증 12개 + 실제 DB DueDate 12행 대조)**. 조사해 보니 비효율보다 **스케줄러를 붙였을 때의 덮어쓰기**가 본질이었다:
+  `CheckDueSoon`은 목록을 먼저 읽고 항목마다 전체 `Save`(UPSERT)를 하므로, 그 사이의 체크를 되돌리고, **완료를 취소**하고(완료 횟수·마감일까지 옛 값으로),
+  삭제한 항목을 되살린다(#20-1 메모와 같은 구조). 사용자 결정으로 "바꿀 칸만 저장"(나)안: `ITodoRepository.SetChecklistItemChecked`(행 하나 UPDATE),
+  `MarkNotifiedDueSoon(id, dueDate)`(`IsCompleted = 0 AND NotifiedDueSoon = 0 AND DueDate = $DueDate`인 경우만 UPDATE, 성공해야 발행).
+  `DueDate` 조건은 반복 항목이 그 사이 다음 회차로 넘어간 경우를 거른다. 스케줄러 스레드에 대한 권고는 #15에 적었다.
 - B-10: 설정 저장 후 API 키 저장이 실패하면 "저장하지 못했습니다"로 안내됨(설정은 이미 저장됨). `CryptographicException`은 잡지 않음.
 - C: 안 쓰는 코드(`NoOpTodoEventBus`, `CharacterPackLoadOutcome.OriginalErrors`, `SqliteTodoRepository.LoadChecklistItems`, `ViewLocator`),
   실제와 다른 주석/문서(`CharacterWindow.SetPack`의 "파일 존재만 확인", `docs/todo-design.md`의 `NoOpTodoEventBus`, `ICharacterLlmAdapter.cs`의 겹친 `<summary>`).
