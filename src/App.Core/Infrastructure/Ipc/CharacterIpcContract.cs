@@ -10,6 +10,9 @@ public static class CharacterIpcContract
 {
     private const string PipeBaseName = "StickyGhost.CharacterIpc";
 
+    /// <summary>요청·응답 한 줄의 최대 글자 수. say 대사 + JSON 포장으로 충분하다(KNOWN_ISSUES #14).</summary>
+    public const int MaxLineChars = 8 * 1024;
+
     /// <summary>
     /// 서버(App.UI)와 클라이언트(App.Mcp, 이중 실행된 두 번째 인스턴스)가 반드시 같은 규칙을 써야 하므로 이름은 여기서만 만든다.
     /// </summary>

@@ -401,6 +401,20 @@ Avalonia 창 조작이라는 사실은 모른다.
 (`[McpServerTool]`)이 호출될 때마다 새로 연결해서 요청을 보낸다. `App.UI`가 안 켜져 있으면 3초 타임아웃 후
 "캐릭터 위젯이 실행 중이지 않습니다" 응답.
 
+**시간·길이 제한** (2026-09-24, KNOWN_ISSUES #14):
+
+| 값 | 위치 | 내용 |
+|---|---|---|
+| 연결 대기 3초 | 클라이언트 `ConnectTimeoutMs` | 서버가 없거나 바쁘면 이 시간 뒤 "실행 중이지 않습니다" |
+| 연결당 2초 | 서버 `ConnectionTimeoutMs` | 연결된 뒤부터 응답을 다 쓸 때까지. **클라이언트 연결 대기보다 짧아야 한다** — 멈춘 연결을 붙잡는 동안 기다리던 요청이 들어올 수 있게 |
+| 응답 대기 5초 | 클라이언트 `ResponseTimeoutMs` | 넘으면 "캐릭터 위젯이 응답하지 않습니다" |
+| 한 줄 8K자 | `CharacterIpcContract.MaxLineChars` | JSON 한 줄 기준. 한글은 `\uXXXX`(6자)로 이스케이프되므로 한글 대사로는 약 1,300자 |
+
+줄 읽기와 쓰기는 `IpcLineIo.cs`의 `IpcLineReader`/`IpcLineWriter`가 맡는다(`StreamReader.ReadLineAsync`는 상한이 없고,
+`StreamWriter`는 취소된 쓰기의 잔여 버퍼를 `Dispose`에서 동기로 flush하다 멈출 수 있어서 쓰지 않는다).
+클라이언트는 보내기 **전에** 길이를 검사한다. 서버도 상한을 넘으면 거절 응답을 보내지만, 크게 넘치면 양쪽이 서로의 쓰기를 기다리는
+교착이 생겨 거절 이유가 전달되지 않기 때문이다.
+
 **핸들러** (`CharacterIpcRequestHandler`, `App.UI`) — `CharacterOverlayController`를 거쳐 상시 캐릭터 오버레이
 창(`CharacterWindow`)에 반영. `say`는 말풍선(`SpeechBubbleWindow`), `setExpression`은 표정 레이어, 둘 다
 `Dispatcher.UIThread.Post`로 UI 스레드에 넘김(파이프 콜백은 UI 스레드가 아님). `expressionId`가 현재 팩에
