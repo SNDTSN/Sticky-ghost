@@ -47,6 +47,25 @@ public sealed class SqliteMemoRepository : IMemoRepository
         command.ExecuteNonQuery();
     }
 
+    public void UpdateGeometry(Guid id, double positionX, double positionY, double width, double height)
+    {
+        using var connection = SqliteConnectionHelper.OpenConnection(_connectionString);
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE MemoNote
+            SET PositionX = $PositionX, PositionY = $PositionY, Width = $Width, Height = $Height
+            WHERE Id = $Id;
+            """;
+
+        command.Parameters.AddWithValue("$Id", id.ToString());
+        command.Parameters.AddWithValue("$PositionX", positionX);
+        command.Parameters.AddWithValue("$PositionY", positionY);
+        command.Parameters.AddWithValue("$Width", width);
+        command.Parameters.AddWithValue("$Height", height);
+
+        command.ExecuteNonQuery();
+    }
+
     public void Delete(Guid id)
     {
         using var connection = SqliteConnectionHelper.OpenConnection(_connectionString);
