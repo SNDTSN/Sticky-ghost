@@ -22,6 +22,7 @@ public partial class MainWindow : Window
     private readonly List<MemoWindow> _memoWindows = new();
     private readonly CharacterIpcServer _characterIpcServer;
     private readonly CharacterOverlayController _characterOverlay;
+    private readonly MainViewModel _mainViewModel;
     private PixelPoint? _lastMemoPosition;
     private readonly WindowPlacementTracker _placementTracker;
 
@@ -42,15 +43,18 @@ public partial class MainWindow : Window
         _placementTracker = new WindowPlacementTracker(this, new WindowStateSlot(services.WindowStateStore, "main"), trackSize: true);
         _placementTracker.Restore(ScreenPlacement.TopRight);
 
-        var mainViewModel = new MainViewModel(services.TodoRepository, services.CategoryRepository, services.TodoService)
+        var settings = services.AppSettingsStore.Load();
+
+        _mainViewModel = new MainViewModel(
+            services.TodoRepository, services.CategoryRepository, services.TodoService, settings.TodoSortOrder)
         {
             ConfirmDeleteTodoRequested = () => ConfirmDialog.ShowAsync(this, "이 할 일을 삭제하시겠습니까?"),
         };
-        DataContext = mainViewModel;
+        DataContext = _mainViewModel;
 
         _characterOverlay = new CharacterOverlayController(
             services.CharacterPackService, services.PacksRootDir, services.BuiltInPackPath, services.WindowStateStore, _windowBehavior,
-            services.BuildReactionService(services.AppSettingsStore.Load()));
+            services.BuildReactionService(settings));
 
         // 할 일을 완료하면 캐릭터가 반응한다. 마감 임박/초과(TodoDueSoon/TodoOverdue)는 아직 연결하지 않았다 —
         // CheckDueSoon을 부를 스케줄러가 없고, 중복 발행 방지가 없어 연결하면 매 검사마다 LLM을 부른다(KNOWN_ISSUES #15).
@@ -115,8 +119,12 @@ public partial class MainWindow : Window
         {
             await new SettingsWindow(_services.SecretStore, _services.AppSettingsStore, _services.PacksRootDir).ShowDialog(this);
 
+            var settings = _services.AppSettingsStore.Load();
+
+            // 할 일 정렬 기준이 바뀌었으면 목록을 새 기준으로 다시 만든다(같으면 아무 일도 안 함).
+            _mainViewModel.ApplySortOrder(settings.TodoSortOrder);
             // provider/모델/키가 바뀌었을 수 있으니 재시작 없이 바로 반영되도록 다시 조립한다.
-            _characterOverlay.SetReactionService(_services.BuildReactionService(_services.AppSettingsStore.Load()));
+            _characterOverlay.SetReactionService(_services.BuildReactionService(settings));
             // 캐릭터 표시 여부/배율/팩 선택도 재시작 없이 바로 반영한다.
             ApplyCharacterSettings();
         }

@@ -3,6 +3,20 @@ using App.Core.Domain.Entities;
 namespace App.Core.Domain.Services;
 
 /// <summary>
+/// 마감일이 같은 할 일끼리(마감일 없는 할 일끼리 포함)의 사분면 순서. 사용자가 설정창에서 고른다(KNOWN_ISSUES #17-1).
+/// 마감일이 가까운 할 일이 먼저 오는 것은 어느 쪽이든 같다. settings.json에는 이름("UrgentFirst")으로 저장되므로
+/// 멤버 이름을 바꾸면 기존 설정이 읽히지 않는다.
+/// </summary>
+public enum TodoSortOrder
+{
+    /// <summary>중요+긴급 → 긴급 → 중요 → 없음. 기본값이자 2026-09-20부터의 동작.</summary>
+    UrgentFirst,
+
+    /// <summary>중요+긴급 → 중요 → 긴급 → 없음. 급한 일에 밀려 중요한 일을 놓치기 쉬운 사용자용.</summary>
+    ImportantFirst,
+}
+
+/// <summary>
 /// 미완료 할 일 목록의 정렬 기준. 마감일(날짜) → 아이젠하워 사분면 → 생성순 → Id 순으로 비교한다.
 /// 규칙 자체는 화면 표시가 아니라 도메인 정책이라 App.Core에 둔다(docs/todo-design.md "목록 정렬 규칙").
 ///
@@ -13,22 +27,25 @@ namespace App.Core.Domain.Services;
 public readonly record struct TodoSortKey(DateTime DueDay, int Quadrant, DateTime CreatedAt, Guid Id)
     : IComparable<TodoSortKey>
 {
-    public static TodoSortKey From(TodoItem item) => new(
+    public static TodoSortKey From(TodoItem item, TodoSortOrder order) => new(
         // 마감일은 "날짜"까지만 본다 — 같은 날 항목들을 일부러 동률로 만들어 사분면이 그날 안의 순서를 정하게 한다.
         // 마감 시각은 DueDateRule.FromDateOnly가 그날 23:59:59로 맞추므로 날짜만 고른 항목끼리는 시각도 같지만,
         // 나중에 시각 입력이 생겨도 사분면 정렬이 조용히 무력화되지 않게 하려고 처음부터 날짜 단위로 자른다.
         // 마감일이 없는 항목은 맨 뒤로 보낸다.
         item.DueDate?.Date ?? DateTime.MaxValue,
-        QuadrantOf(item),
+        QuadrantOf(item, order),
         item.CreatedAt,
         item.Id);
 
     /// <summary>
-    /// 아이젠하워 사분면을 작을수록 위로 오는 순위로 바꾼다 — 0 중요+긴급 / 1 긴급 / 2 중요 / 3 없음.
-    /// "긴급 우선"은 사용자 결정(2026-09-20): 같은 날 안에서는 "지금 뭐부터?"에 바로 답하는 순서를 택했다.
-    /// 중요 우선(0 중요+긴급 / 1 중요 / 2 긴급 / 3 없음)으로 바꾸려면 아래 두 항의 가중치를 맞바꾸면 된다.
+    /// 아이젠하워 사분면을 작을수록 위로 오는 순위로 바꾼다. 앞에 오는 딱지에 큰 가중치(2)를 준다.
+    /// 긴급 우선: 0 중요+긴급 / 1 긴급 / 2 중요 / 3 없음 — "지금 뭐부터?"에 답하는 순서(2026-09-20 결정).
+    /// 중요 우선: 0 중요+긴급 / 1 중요 / 2 긴급 / 3 없음 — 매트릭스 본래 의도(급하지 않은 중요한 일을 챙긴다).
+    /// 개인 사용자는 급한 일을 남에게 맡기기 어려워 긴급 우선을 기본값으로 두고, 중요 우선을 선택지로 연다(2026-09-24).
     /// </summary>
-    private static int QuadrantOf(TodoItem item) => (item.IsUrgent ? 0 : 2) + (item.IsImportant ? 0 : 1);
+    private static int QuadrantOf(TodoItem item, TodoSortOrder order) => order == TodoSortOrder.ImportantFirst
+        ? (item.IsImportant ? 0 : 2) + (item.IsUrgent ? 0 : 1)
+        : (item.IsUrgent ? 0 : 2) + (item.IsImportant ? 0 : 1);
 
     public int CompareTo(TodoSortKey other)
     {

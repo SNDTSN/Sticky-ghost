@@ -1,5 +1,7 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using App.Core.Diagnostics;
+using App.Core.Domain.Services;
 
 namespace App.Core.Infrastructure.FileSystem;
 
@@ -16,6 +18,12 @@ public sealed record AppSettings
     // 50 | 100 | 150 | 200 외 값은 SettingsWindow가 100으로 취급한다.
     public int CharacterScale { get; init; } = 100;
     public string? SelectedCharacterPackId { get; init; }
+
+    // 파일에는 숫자가 아니라 이름으로 저장한다 — 숫자면 enum 순서가 바뀔 때 뜻이 조용히 뒤집힌다.
+    // 이 필드가 없는 예전 settings.json은 기본값(긴급 우선)으로 읽혀 기존 사용자의 순서가 그대로다.
+    // 모르는 이름이면 다른 필드처럼 읽기 실패로 설정 전체가 기본값이 된다(Load 참고, 원인은 AppLog에 남는다).
+    [JsonConverter(typeof(JsonStringEnumConverter<TodoSortOrder>))]
+    public TodoSortOrder TodoSortOrder { get; init; } = TodoSortOrder.UrgentFirst;
 }
 
 /// <summary>

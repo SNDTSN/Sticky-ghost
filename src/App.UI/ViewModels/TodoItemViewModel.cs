@@ -26,20 +26,21 @@ public partial class TodoItemViewModel : ViewModelBase
     public bool HasCategory => CategoryName is not null;
     public ObservableCollection<ChecklistItemViewModel> ChecklistItems { get; }
 
-    /// <summary>목록에서의 정렬 위치. 화면에 표시하지 않고 MainViewModel이 삽입 위치를 정할 때만 쓴다.</summary>
+    /// <summary>목록에서의 정렬 위치. 화면에 표시하지 않고 MainViewModel이 삽입 위치를 정할 때만 쓴다.
+    /// 정렬 기준(설정)은 MainViewModel만 알고 키를 계산해 넘겨준다 — 기준이 바뀌면 MainViewModel이 VM을 전부 새로 만든다.</summary>
     public TodoSortKey SortKey { get; }
 
     [ObservableProperty]
     private bool _isCompleted;
 
     public TodoItemViewModel(
-        TodoItem item, Category? category, Action<Guid> onComplete, Action<Guid, Guid, bool> onToggleChecklistItem,
+        TodoItem item, TodoSortKey sortKey, Category? category, Action<Guid> onComplete, Action<Guid, Guid, bool> onToggleChecklistItem,
         Func<Guid, Task> onDelete)
     {
         _onComplete = onComplete;
         _onDelete = onDelete;
         Id = item.Id;
-        SortKey = TodoSortKey.From(item);
+        SortKey = sortKey;
         Title = item.Title;
         DueDate = item.DueDate;
         IsImportant = item.IsImportant;

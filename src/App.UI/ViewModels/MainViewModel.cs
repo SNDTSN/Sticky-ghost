@@ -16,6 +16,8 @@ public partial class MainViewModel : ViewModelBase
     private readonly ITodoRepository _todoRepository;
     private readonly ICategoryRepository _categoryRepository;
     private readonly TodoService _todoService;
+    // 마감일이 같은 할 일끼리의 사분면 순서(설정). LoadItems와 UpsertItem이 KeyOf 하나로 같은 기준을 쓴다(KNOWN_ISSUES #17-1).
+    private TodoSortOrder _sortOrder;
 
     public ObservableCollection<TodoItemViewModel> Items { get; } = new();
 
@@ -121,11 +123,13 @@ public partial class MainViewModel : ViewModelBase
     [ObservableProperty]
     private CategoryViewModel? _selectedCategory;
 
-    public MainViewModel(ITodoRepository todoRepository, ICategoryRepository categoryRepository, TodoService todoService)
+    public MainViewModel(
+        ITodoRepository todoRepository, ICategoryRepository categoryRepository, TodoService todoService, TodoSortOrder sortOrder)
     {
         _todoRepository = todoRepository;
         _categoryRepository = categoryRepository;
         _todoService = todoService;
+        _sortOrder = sortOrder;
         _selectedRecurrenceUnit = RecurrenceUnitOptions[0];
 
         // 요일 체크박스는 별도 뷰모델이라 여기서 구독해야 미리보기가 따라 갱신된다.
@@ -138,16 +142,31 @@ public partial class MainViewModel : ViewModelBase
         LoadItems();
     }
 
+    /// <summary>
+    /// 설정창에서 정렬 기준을 바꿨을 때 부른다. 목록의 VM들은 옛 기준으로 계산한 키를 들고 있으므로
+    /// 하나씩 옮기지 않고 LoadItems로 전부 새로 만든다 — 그래야 이후 UpsertItem의 삽입 위치 탐색도 새 기준의 키끼리 비교한다.
+    /// </summary>
+    public void ApplySortOrder(TodoSortOrder sortOrder)
+    {
+        if (sortOrder == _sortOrder)
+            return;
+
+        _sortOrder = sortOrder;
+        LoadItems();
+    }
+
+    private TodoSortKey KeyOf(TodoItem item) => TodoSortKey.From(item, _sortOrder);
+
     private void LoadItems()
     {
         Items.Clear();
         var categoryLookup = _categoryRepository.GetAll().ToDictionary(c => c.Id);
-        foreach (var item in _todoRepository.GetIncomplete().OrderBy(TodoSortKey.From))
+        foreach (var item in _todoRepository.GetIncomplete().OrderBy(KeyOf))
         {
             Category? category = item.CategoryId is { } categoryId && categoryLookup.TryGetValue(categoryId, out var found)
                 ? found
                 : null;
-            Items.Add(new TodoItemViewModel(item, category, CompleteTodo, ToggleChecklistItem, DeleteTodoAsync));
+            Items.Add(new TodoItemViewModel(item, KeyOf(item), category, CompleteTodo, ToggleChecklistItem, DeleteTodoAsync));
         }
     }
 
@@ -298,7 +317,7 @@ public partial class MainViewModel : ViewModelBase
         Category? category = item.CategoryId is { } categoryId
             ? _categoryRepository.GetAll().FirstOrDefault(c => c.Id == categoryId)
             : null;
-        var vm = new TodoItemViewModel(item, category, CompleteTodo, ToggleChecklistItem, DeleteTodoAsync);
+        var vm = new TodoItemViewModel(item, KeyOf(item), category, CompleteTodo, ToggleChecklistItem, DeleteTodoAsync);
         var key = vm.SortKey;
 
         // 정렬 키가 그대로면 자리를 옮기지 않는다 — 제거 후 재삽입은 ListBox의 스크롤 위치를 튀게 한다.

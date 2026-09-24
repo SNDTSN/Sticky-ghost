@@ -12,7 +12,7 @@ using Avalonia.Interactivity;
 
 namespace App.UI.Views;
 
-/// <summary>LLM provider·모델·API 키·캐릭터 표시 설정을 입력하는 설정 창.
+/// <summary>할 일 정렬 기준·LLM provider·모델·API 키·캐릭터 표시 설정을 입력하는 설정 창.
 /// 저장된 API 키 값은 보안상 다시 보여주지 않고 상태만 표시한다.</summary>
 public partial class SettingsWindow : Window
 {
@@ -36,6 +36,8 @@ public partial class SettingsWindow : Window
         _availablePacks = new CharacterPackScanner(new JsonCharacterPackLoader()).ScanAvailablePacks(characterPacksRootDir);
 
         _isLoading = true;
+        ImportantFirstRadioButton.IsChecked = _settings.TodoSortOrder == TodoSortOrder.ImportantFirst;
+        UrgentFirstRadioButton.IsChecked = _settings.TodoSortOrder != TodoSortOrder.ImportantFirst;
         ProviderComboBox.SelectedIndex = _settings.LlmProvider == LlmProviderCatalog.Gemini ? 1 : 0;
         CharacterVisibleToggle.IsChecked = _settings.CharacterVisible;
         SetScaleRadio(_settings.CharacterScale);
@@ -127,6 +129,7 @@ public partial class SettingsWindow : Window
 
         _settings = _settings with
         {
+            TodoSortOrder = ImportantFirstRadioButton.IsChecked == true ? TodoSortOrder.ImportantFirst : TodoSortOrder.UrgentFirst,
             CharacterVisible = CharacterVisibleToggle.IsChecked ?? true,
             CharacterScale = GetSelectedScale(),
             SelectedCharacterPackId = (CharacterPackComboBox.SelectedItem as CharacterPackScanEntry)?.Id,

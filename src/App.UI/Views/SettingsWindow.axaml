@@ -6,6 +6,33 @@
         WindowStartupLocation="CenterOwner"
         Title="설정">
     <StackPanel Margin="16" Spacing="12">
+        <TextBlock Text="할 일" FontWeight="Bold" />
+
+        <!-- 마감일이 같은 할 일끼리의 사분면 순서(KNOWN_ISSUES #17-1). "중요"/"긴급" 글자는 목록 딱지와 같은 색이다 —
+             설정에서 고르는 것이 목록의 어느 딱지인지 바로 이어지게. 문구가 길어 창이 어수선하면 설명부터 줄인다. -->
+        <StackPanel Spacing="4">
+            <TextBlock Text="마감일이 같은 할 일의 순서" FontSize="12" Foreground="Gray" />
+
+            <RadioButton x:Name="UrgentFirstRadioButton" GroupName="TodoSortOrder">
+                <TextBlock><Run Text="긴급" Foreground="Red" /><Run Text=" 먼저" /></TextBlock>
+            </RadioButton>
+            <TextBlock FontSize="11" Foreground="Gray" Margin="28,0,0,0" TextWrapping="Wrap">
+                <Run Text="중요" Foreground="DarkOrange" /><Run Text="+" /><Run Text="긴급" Foreground="Red" /><Run Text=" → " /><Run Text="긴급" Foreground="Red" /><Run Text=" → " /><Run Text="중요" Foreground="DarkOrange" /><Run Text=" → " /><Run Text="없음" />
+            </TextBlock>
+
+            <RadioButton x:Name="ImportantFirstRadioButton" GroupName="TodoSortOrder">
+                <TextBlock><Run Text="중요" Foreground="DarkOrange" /><Run Text=" 먼저" /></TextBlock>
+            </RadioButton>
+            <TextBlock FontSize="11" Foreground="Gray" Margin="28,0,0,0" TextWrapping="Wrap">
+                <Run Text="중요" Foreground="DarkOrange" /><Run Text="+" /><Run Text="긴급" Foreground="Red" /><Run Text=" → " /><Run Text="중요" Foreground="DarkOrange" /><Run Text=" → " /><Run Text="긴급" Foreground="Red" /><Run Text=" → " /><Run Text="없음" />
+            </TextBlock>
+            <TextBlock Text="급한 일에 밀려 중요한 일을 놓치기 쉬운 분께 권합니다."
+                       FontSize="11" Foreground="Gray" Margin="28,0,0,0" TextWrapping="Wrap" />
+
+            <TextBlock Text="마감일이 가까운 할 일은 이 설정과 상관없이 항상 먼저 옵니다. 마감일 없는 할 일끼리도 이 순서를 따릅니다."
+                       FontSize="11" Foreground="Gray" TextWrapping="Wrap" />
+        </StackPanel>
+
         <TextBlock Text="LLM" FontWeight="Bold" />
 
         <StackPanel Spacing="4">
